@@ -2,6 +2,7 @@ SUBMODULES =					\
 	external/libsodium			\
 	external/libwally-core			\
 	external/gheap				\
+	external/minisketch			\
 	external/jsmn				\
 	external/libbacktrace			\
 	external/lnprototest
@@ -24,15 +25,21 @@ LIBSECP_HEADERS := external/libwally-core/src/secp256k1/include/secp256k1_ecdh.h
 		external/libwally-core/src/secp256k1/include/secp256k1.h
 JSMN_HEADERS := external/jsmn/jsmn.h
 GHEAP_HEADERS := external/gheap/gheap.h
+MINISKETCH_HEADERS := external/minisketch/include/minisketch.h
 LIBBACKTRACE_HEADERS := external/libbacktrace/backtrace.h
 
-EXTERNAL_HEADERS := $(LIBSODIUM_HEADERS) $(LIBWALLY_HEADERS) $(LIBSECP_HEADERS) $(JSMN_HEADERS) $(GHEAP_HEADERS) $(LIBBACKTRACE_HEADERS)
+EXTERNAL_HEADERS := $(LIBSODIUM_HEADERS) $(LIBWALLY_HEADERS) $(LIBSECP_HEADERS) $(JSMN_HEADERS)	\
+			$(GHEAP_HEADERS) $(LIBBACKTRACE_HEADERS) $(MINISKETCH_HEADERS)
 EXTERNAL_LIBS := ${TARGET_DIR}/libwallycore.a ${TARGET_DIR}/libsecp256k1.a ${TARGET_DIR}/libjsmn.a ${TARGET_DIR}/libbacktrace.a
+ifeq ($(EXPERIMENTAL_FEATURES),1)
+EXTERNAL_LIBS += external/libminisketch.a
+endif
 
 EXTERNAL_INCLUDE_FLAGS :=					\
 	-I external/libwally-core/include/			\
 	-I external/libwally-core/src/secp256k1/include/	\
 	-I external/jsmn/					\
+	-I external/minisketch/include/			\
 	-I external/libbacktrace/				\
 	-I external/gheap/					\
 	-I ${TARGET_DIR}/libbacktrace-build
@@ -103,6 +110,12 @@ $(TARGET_DIR)/libbacktrace.a: external/libbacktrace/backtrace.h
 	mkdir -p $(TARGET_DIR)/libbacktrace-build
 	cd $(TARGET_DIR)/libbacktrace-build && $(TOP)/libbacktrace/configure CC="$(CC)" --enable-static=yes $(CROSSCOMPILE_OPTS) --enable-shared=no --prefix=/ --libdir=/ && $(MAKE)
 	$(MAKE) -C $(TARGET_DIR)/libbacktrace-build DESTDIR=$$(pwd)/$(TARGET_DIR) install-exec
+
+external/minisketch/include/minisketch.h: submodcheck
+
+external/libminisketch.a: external/minisketch/include/minisketch.h
+	cd external/minisketch && ./autogen.sh && ./configure CC="$(CC)" --enable-static=yes --host="$(MAKE_HOST)" --build="$(BUILD)" --enable-shared=no --enable-tests=no --prefix=/ --libdir=/ && $(MAKE)
+	$(MAKE) -C external/minisketch DESTDIR=$$(pwd)/external install-exec
 
 distclean: external-distclean
 clean: external-clean
