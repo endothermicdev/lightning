@@ -221,23 +221,29 @@ static const u8 *handle_channel_announcement_msg(struct daemon *daemon,
 						 struct peer *peer,
 						 const u8 *msg)
 {
+	/*FIXME: handle_channel_announcement_msg has no peer, passes NULL*/
+	struct routing_state *rstate;
+	if (peer == NULL)
+		rstate = daemon->rstate;
+	else
+		rstate = peer->daemon->rstate;
 	const struct short_channel_id *scid;
 	const u8 *err;
 
 	/* If it's OK, tells us the short_channel_id to lookup; it notes
 	 * if this is the unknown channel the peer was looking for (in
 	 * which case, it frees and NULLs that ptr) */
-	err = handle_channel_announcement(daemon->rstate, msg,
-					  daemon->current_blockheight,
+	err = handle_channel_announcement(rstate, msg,
+					  rstate->current_blockheight,
 					  &scid, peer);
 	if (err)
 		return err;
 	else if (scid) {
 		/* We give them some grace period, in case we don't know about
 		 * block yet. */
-		if (daemon->current_blockheight == 0
+		if (rstate->current_blockheight == 0
 		    || !is_scid_depth_announceable(scid,
-						   daemon->current_blockheight)) {
+						   rstate->current_blockheight)) {
 			tal_arr_expand(&daemon->deferred_txouts, *scid);
 		} else {
 			daemon_conn_send(daemon->master,
@@ -723,7 +729,7 @@ static void gossip_init(struct daemon *daemon, const u8 *msg)
 
 static void new_blockheight(struct daemon *daemon, const u8 *msg)
 {
-	if (!fromwire_gossipd_new_blockheight(msg, &daemon->current_blockheight))
+	if (!fromwire_gossipd_new_blockheight(msg, &daemon->rstate->current_blockheight))
 		master_badmsg(WIRE_GOSSIPD_NEW_BLOCKHEIGHT, msg);
 
 	/* Check if we can now send any deferred queries. */
@@ -732,7 +738,7 @@ static void new_blockheight(struct daemon *daemon, const u8 *msg)
 			= &daemon->deferred_txouts[i];
 
 		if (!is_scid_depth_announceable(scid,
-						daemon->current_blockheight))
+						daemon->rstate->current_blockheight))
 			continue;
 
 		/* short_channel_id is deep enough, now ask about it. */
@@ -1059,7 +1065,6 @@ int main(int argc, char *argv[])
 	list_head_init(&daemon->peers);
 	daemon->deferred_txouts = tal_arr(daemon, struct short_channel_id, 0);
 	daemon->node_announce_timer = NULL;
-	daemon->current_blockheight = 0; /* i.e. unknown */
 	daemon->rates = NULL;
 	list_head_init(&daemon->deferred_updates);
 

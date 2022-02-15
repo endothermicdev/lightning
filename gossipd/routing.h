@@ -219,6 +219,9 @@ struct routing_state {
 	UINTMAP(bool) txout_failures, txout_failures_old;
 	struct oneshot *txout_failure_timer;
 
+	/* Current blockheight: 0 means we're not up-to-date. */
+	u32 current_blockheight;
+
 	/* Highest timestamp of gossip we accepted (before now) */
 	u32 last_timestamp;
 
