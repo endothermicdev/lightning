@@ -42,6 +42,13 @@ struct chan {
 	struct broadcastable bcast;
 
 	struct amount_sat sat;
+
+	/* latest minisketch entries*/
+	#if EXPERIMENTAL_FEATURES
+	u64 minisketch_channel_announcement;
+	u64 minisketch_channel_update_1;
+	u64 minisketch_channel_update_2;
+	#endif
 };
 
 /* Shadow structure for local channels: owned by the chan above, but kept
@@ -113,6 +120,9 @@ struct node {
 		struct chan_map map;
 		struct chan *arr[NUM_IMMEDIATE_CHANS+1];
 	} chans;
+	#if EXPERIMENTAL_FEATURES
+	u64 minisketch_node_announcement;
+	#endif
 };
 
 const struct node_id *node_map_keyof_node(const struct node *n);
@@ -224,6 +234,12 @@ struct routing_state {
 
 	/* Highest timestamp of gossip we accepted (before now) */
 	u32 last_timestamp;
+
+#if EXPERIMENTAL_FEATURES
+	struct minisketch *minisketch;
+	size_t sketch_entries, sketch_cannounce_entries,
+		sketch_nannounce_entries, sketch_cupdate_entries;
+#endif
 
 #if DEVELOPER
 	/* Override local time for gossip messages */

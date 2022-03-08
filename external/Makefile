@@ -39,7 +39,7 @@ EXTERNAL_INCLUDE_FLAGS :=					\
 	-I external/libwally-core/include/			\
 	-I external/libwally-core/src/secp256k1/include/	\
 	-I external/jsmn/					\
-	-I external/minisketch/include/			\
+	-I external/minisketch/include/				\
 	-I external/libbacktrace/				\
 	-I external/gheap/					\
 	-I ${TARGET_DIR}/libbacktrace-build

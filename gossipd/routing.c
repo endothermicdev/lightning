@@ -14,6 +14,7 @@
 #include <gossipd/gossipd.h>
 #include <gossipd/gossipd_wiregen.h>
 #include <gossipd/routing.h>
+#include <gossipd/minisketch.h>
 
 #ifndef SUPERVERBOSE
 #define SUPERVERBOSE(...)
@@ -198,6 +199,9 @@ static void destroy_routing_state(struct routing_state *rstate)
 
 	/* Free up our htables */
 	pending_cannouncement_map_clear(&rstate->pending_cannouncements);
+#ifdef EXPERIMENTAL_FEATURES
+	destroy_minisketch(rstate);
+#endif
 }
 
 /* We don't check this when loading from the gossip_store: that would break
@@ -371,6 +375,9 @@ static struct node *new_node(struct routing_state *rstate,
 	broadcastable_init(&n->bcast);
 	n->tokens = TOKEN_MAX;
 	node_map_add(rstate->nodes, n);
+#if EXPERIMENTAL_FEATURES
+	init_minisketch_node(n);
+#endif
 	tal_add_destructor2(n, destroy_node, rstate);
 
 	return n;
@@ -562,6 +569,10 @@ static struct chan *new_chan(struct routing_state *rstate,
 	init_half_chan(rstate, chan, !n1idx);
 
 	uintmap_add(&rstate->chanmap, scid->u64, chan);
+
+#if EXPERIMENTAL_FEATURES
+	init_minisketch_channels(chan);
+#endif
 
 	return chan;
 }

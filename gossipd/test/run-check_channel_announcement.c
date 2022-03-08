@@ -59,6 +59,9 @@ bool cupdate_different(struct gossip_store *gs UNNEEDED,
 		       const struct half_chan *hc UNNEEDED,
 		       const u8 *cupdate UNNEEDED)
 { fprintf(stderr, "cupdate_different called!\n"); abort(); }
+/* Generated stub for destroy_minisketch */
+void destroy_minisketch(struct routing_state *rstate UNNEEDED)
+{ fprintf(stderr, "destroy_minisketch called!\n"); abort(); }
 /* Generated stub for ecdh */
 void ecdh(const struct pubkey *point UNNEEDED, struct secret *ss UNNEEDED)
 { fprintf(stderr, "ecdh called!\n"); abort(); }
@@ -98,6 +101,12 @@ void gossip_store_mark_channel_deleted(struct gossip_store *gs UNNEEDED,
 struct gossip_store *gossip_store_new(struct routing_state *rstate UNNEEDED,
 				      struct list_head *peers UNNEEDED)
 { fprintf(stderr, "gossip_store_new called!\n"); abort(); }
+/* Generated stub for init_minisketch_channels */
+void init_minisketch_channels(struct chan *chan UNNEEDED)
+{ fprintf(stderr, "init_minisketch_channels called!\n"); abort(); }
+/* Generated stub for init_minisketch_node */
+void init_minisketch_node(struct node *node UNNEEDED)
+{ fprintf(stderr, "init_minisketch_node called!\n"); abort(); }
 /* Generated stub for json_add_member */
 void json_add_member(struct json_stream *js UNNEEDED,
 		     const char *fieldname UNNEEDED,
