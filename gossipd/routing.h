@@ -46,8 +46,7 @@ struct chan {
 	/* latest minisketch entries*/
 	#if EXPERIMENTAL_FEATURES
 	u64 minisketch_channel_announcement;
-	u64 minisketch_channel_update_1;
-	u64 minisketch_channel_update_2;
+	u64 minisketch_channel_update[2];
 	#endif
 };
 

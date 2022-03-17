@@ -98,8 +98,10 @@ u64 minisketch_encode_cupdate(struct chan *chan, u8 direction,u32 timestamp){
         return minisketch_encode(1, chan->scid, direction, timestamp);
 }
 
-u64 minisketch_encode_cannounce(struct chan *chan,u32 timestamp){
-        return minisketch_encode(0, chan->scid, 0, timestamp);
+u64 minisketch_encode_cannounce(struct chan *chan){
+        /* No timestamp associate with channel_announce. */
+        return minisketch_encode(0, chan->scid, 0, 0xFFFFFFFF);
+        //return minisketch_encode(0, chan->scid, 0, timestamp);
 }
 
 u64 minisketch_encode_nannounce(struct chan *chan,u32 timestamp, u8 side){
@@ -116,7 +118,7 @@ u8 minisketch_decode_type(u64 minisketch_entry){
          *   * 2 for node_announcement
          */
         u8 minisketch_gossip_type;
-        minisketch_gossip_type = minisketch_entry && 0x3;
+        minisketch_gossip_type = minisketch_entry & 0x3;
         /*FIXME: wire type may be more useful here. */
         switch(minisketch_gossip_type){
         case 0:
@@ -134,8 +136,8 @@ void init_minisketch_channels(struct chan *chan)
 {
         /* Unused sketch entries. Minisketch entries may not be 0. */
         chan->minisketch_channel_announcement = 0;
-        chan->minisketch_channel_update_1 = 0;
-        chan->minisketch_channel_update_2 = 0;
+        chan->minisketch_channel_update[0] = 0;
+        chan->minisketch_channel_update[1] = 0;
 }
 
 void init_minisketch_node(struct node *node)
@@ -166,6 +168,102 @@ bool minisketch_add_to_sketch(struct routing_state *rstate, u64 minisketch_entry
         }
         minisketch_add_uint64(rstate->minisketch, minisketch_entry);
         rstate->sketch_entries++;
+        return true;
+}
+
+bool minisketch_sub_from_sketch(struct routing_state *rstate, u64 minisketch_entry)
+{
+        /* Uninitialized sketch entries may not be added. */
+        if (!minisketch_entry)
+                return false;
+
+        switch (minisketch_decode_type(minisketch_entry)){
+        case 0:
+                rstate->sketch_cannounce_entries--;
+                break;
+        case 1:
+                rstate->sketch_cupdate_entries--;
+                break;
+        case 2:
+                rstate->sketch_nannounce_entries--;
+                break;
+        case 255:
+                /* invalid type in sketch encoding*/
+                return false;
+        }
+        minisketch_add_uint64(rstate->minisketch, minisketch_entry);
+        rstate->sketch_entries--;
+        return true;
+}
+
+/* add cannounce to a chan and add sketch entry to minisketch*/
+bool minisketch_add_cannounce(struct routing_state *rstate,
+                              struct chan *chan)
+{
+        /*call this alongside routing_add_channel_announcement()*/
+        u64 ms;
+        ms = minisketch_encode_cannounce(chan);
+        /* Should not have a previous channel announcement. But it would mess
+        up our entire minisketch if it's not handled.*/
+        if (chan->minisketch_channel_announcement){
+                minisketch_sub_from_sketch(rstate, chan->minisketch_channel_announcement);
+        }
+        chan->minisketch_channel_announcement = ms;
+        /* add entry to minisketch */
+        minisketch_add_to_sketch(rstate, ms);
+        return true;
+}
+
+bool minisketch_handle_cupdate(struct routing_state *rstate,
+                            struct chan *chan,
+                            u8 direction,
+                            u32 timestamp)
+{
+        /* called from routing_add_channel_update */
+        u64 ms;
+        ms = minisketch_encode_cupdate(chan, direction, timestamp);
+        /* remove old entry from minisketch if it has one*/
+        if (chan->minisketch_channel_update[direction]){
+                minisketch_sub_from_sketch(rstate, chan->minisketch_channel_update[direction]);
+        }
+        chan->minisketch_channel_update[direction] = ms;
+        minisketch_add_to_sketch(rstate, ms);
+        return true;
+}
+
+bool minisketch_handle_nannounce(struct routing_state *rstate,
+                                 const struct node_id *node_id,
+                                 u32 timestamp)
+{
+        /* called from handle_node_announcement */
+        struct node *node;
+        node = get_node(rstate, node_id);
+        /* get node's first channel for cannonical identification.
+           Must also be updated when channel is closed.*/
+        struct chan_map_iter i;
+	struct chan *c, *low_scid_chan;
+        c = low_scid_chan = first_chan(node, &i);
+        for (; c ; c = next_chan(node, &i)) {
+                if (c->scid.u64 < low_scid_chan->scid.u64){
+                        low_scid_chan = c;
+                }
+        }
+        if (!low_scid_chan)
+                return false;
+        u8 side;
+        if (node == low_scid_chan->nodes[0])
+                side = 0;
+        else if (node == low_scid_chan->nodes[1])
+                side = 1;
+        else
+                return false;
+        u64 ms;
+        ms = minisketch_encode_nannounce(low_scid_chan, timestamp, side);
+        /* remove old entry from minisketch if it has one*/
+        if (node->minisketch_node_announcement)
+                minisketch_sub_from_sketch(rstate,node->minisketch_node_announcement);
+        node->minisketch_node_announcement = ms;
+        minisketch_add_to_sketch(rstate, ms);
         return true;
 }
 

@@ -5,6 +5,7 @@
 struct chan;
 struct node;
 struct routing_state;
+struct node_id;
 
 #if EXPERIMENTAL_FEATURES
 
@@ -15,12 +16,24 @@ u64 minisketch_encode(u8 type,
                   struct short_channel_id short_channel_id, u8 side,
                   u32 timestamp);
 u64 minisketch_encode_cupdate(struct chan *chan, u8 direction,u32 timestamp);
-u64 minisketch_encode_cannounce(struct chan *chan,u32 timestamp);
+u64 minisketch_encode_cannounce(struct chan *chan);
 u64 minisketch_encode_nannounce(struct chan *chan,u32 timestamp, u8 side);
 u8 minisketch_decode_type(u64 minisketch_entry);
 void init_minisketch_channels(struct chan *chan);
 void init_minisketch_node(struct node *node);
-bool minisketch_add_to_sketch(struct routing_state *rstate, u64 minisketch_entry);
+bool minisketch_add_to_sketch(struct routing_state *rstate,
+                              u64 minisketch_entry);
+bool minisketch_sub_from_sketch(struct routing_state *rstate,
+                                u64 minisketch_entry);
+bool minisketch_add_cannounce(struct routing_state *rstate,
+                              struct chan *chan);
+bool minisketch_handle_cupdate(struct routing_state *rstate,
+                               struct chan *chan,
+                               u8 direction,
+                               u32 timestamp);
+bool minisketch_handle_nannounce(struct routing_state *rstate,
+                                 const struct node_id *node_id,
+                                 u32 timestamp);
 
 #else /* Noop versions */
 static inline void init_minisketch(struct routing_state *rstate)
@@ -45,7 +58,7 @@ static inline u64 minisketch_encode_cupdate(struct chan *chan, u8 direction,
 {
         return NULL;
 }
-static inline u64 minisketch_encode_cannounce(struct chan *chan,u32 timestamp)
+static inline u64 minisketch_encode_cannounce(struct chan *chan)
 {
         return NULL;
 }
@@ -64,6 +77,28 @@ void init_minisketch_node(struct node *node)
 {
 }
 bool minisketch_add_to_sketch(struct routing_state *rstate, u64 minisketch_entry)
+{
+        return NULL;
+}
+bool minisketch_sub_from_sketch(struct routing_state *rstate, u64 minisketch_entry)
+{
+        return NULL;
+}
+bool minisketch_add_cannounce(struct routing_state *rstate,
+                              struct chan *chan)
+{
+        return NULL;
+}
+bool minisketch_handle_cupdate(struct routing_state *rstate,
+                               struct chan *chan,
+                               u8 direction,
+                               u32 timestamp)
+{
+        return NULL;
+}
+bool minisketch_handle_nannounce(struct routing_state *rstate,
+                                 const struct node_id *node_id,
+                                 u32 timestamp)
 {
         return NULL;
 }

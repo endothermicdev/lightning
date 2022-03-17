@@ -148,28 +148,46 @@ int main(int argc, char *argv[])
 	struct routing_state *rstate;
         rstate = new_routing_state(tmpctx, talz(tmpctx, struct node_id),
 				   NULL, NULL, NULL, false, false);
-        printf("rstate created.\n");
         init_minisketch(rstate);
-        printf("empty minisketch initialized.\n");
-        printf("testing encoding");
         struct short_channel_id scid;
 	/*Block = 710622 TXindex = 622, Output Index = 0*/
         scid.u64 = 0x0ad7de00026e0000;
+	struct chan *chan1;
+	chan1 = tal(rstate, struct chan);
+	chan1->scid = scid;
+	chan1->minisketch_channel_update[0] = 0;
+	chan1->minisketch_channel_update[1] = 0;
         u64 sketch_entry;
-        printf("SCID block: %u\n",short_channel_id_blocknum(&scid));
-        printf("SCID tx:    %u\n",short_channel_id_txnum(&scid));
-        printf("SCID out:   %u\n",short_channel_id_outnum(&scid));
-        sketch_entry = minisketch_encode(1, scid, 0, 4094);
+	if (short_channel_id_blocknum(&scid) != 710622)
+		abort();
+	assert(minisketch_decode_type(0) == 0);
+	assert(minisketch_decode_type(1) == 1);
+	assert(minisketch_decode_type(2) == 2);
+	/* channel update encoding*/
+	u8 cdir = 0;
+	sketch_entry = minisketch_encode_cupdate(chan1,cdir,4093);
+	assert(sketch_entry == minisketch_encode(1, scid, cdir, 4093));
+	assert(minisketch_decode_type(sketch_entry) == 1);
+	minisketch_handle_cupdate(rstate,chan1,cdir,4093);
+	assert(chan1->minisketch_channel_update[0] != 0);
+	/* verify count is correctly updated */
+	minisketch_handle_cupdate(rstate,chan1,cdir,4094);
+	/*
         printf("scid: 0x%016lX\n",scid.u64);
         printf("sketch encoded: 0x%016lX\n",sketch_entry);
 	printf("decoded type: %u\n",minisketch_decode_type(sketch_entry));
-	if (minisketch_add_to_sketch(rstate,sketch_entry))
-		printf("minisketch entry added.\n");
-	printf("minisketch entries: %lu\n",rstate->sketch_entries);
-	printf("nannounce entries: %lu\n",rstate->sketch_nannounce_entries);
-	printf("cannounce entries: %lu\n",rstate->sketch_cannounce_entries);
-	printf("cupdate entries: %lu\n",rstate->sketch_cupdate_entries);
-	printf("Mischief managed.\n");
+	*/
+	if ((rstate->sketch_entries != 1) | (rstate->sketch_cupdate_entries != 1))
+		abort();
+	assert(minisketch_sub_from_sketch(rstate,sketch_entry));
+	if ((rstate->sketch_entries != 0) | (rstate->sketch_cupdate_entries != 0))
+		abort();
+	sketch_entry = minisketch_encode(0, scid, 0, 0xFFFFFFFF);
+	minisketch_add_cannounce(rstate,chan1);
+	if ((rstate->sketch_entries != 1) | (rstate->sketch_cannounce_entries != 1))
+		abort();
+	assert(chan1->minisketch_channel_announcement != 0);
+	tal_free(chan1);
 	common_shutdown();
 	return 0;
 }
