@@ -266,5 +266,65 @@ bool minisketch_handle_nannounce(struct routing_state *rstate,
         minisketch_add_to_sketch(rstate, ms);
         return true;
 }
+static u64 pull_bits(u64 *val, size_t *bitoff, size_t bits)
+{
+	u64 ret;
+
+	ret = *val;
+	ret &= ((u64)1 << bits) - 1;
+	*val >>= bits;
+	*bitoff += bits;
+	return ret;
+}
+/* decode a channel announcement minisketch entry into a short_channel_id */
+bool minisketch_decode_cannounce(u64 ms_entry,
+                                 struct short_channel_id *scid,
+                                 u32 *timestamp){
+        size_t bitoff = 0;
+        u32 scid_blk, scid_tx, scid_out;
+        /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+         * Each minisketch gossip entry is encoded in 64 bits in the following
+         * manner:
+         * 1. The two lowest bits, N0, specify gossip type:
+         *   * 0 for channel_announcement
+         *   * 1 for channel_update
+         *   * 2 for node_announcement
+         */
+        assert(pull_bits(&ms_entry, &bitoff, 2) == 0);
+
+        /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+         * 2. The next lowest bit, N1, specifies the channel side of the
+         *    gossip.
+         *   * In the case of a channel announcement, bit N1 is ignored.
+         */
+        pull_bits(&ms_entry, &bitoff, 1);
+
+        /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+         * 3. The next lowest N2=24 bits encode the block height of the
+         *    channel's funding transaction.
+         */
+        scid_blk = pull_bits(&ms_entry, &bitoff, 24);
+
+        /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+         * 4. The next lowest N3=15 bits encode the transaction index of the
+         *    funding transaction.
+         */
+        scid_tx = pull_bits(&ms_entry, &bitoff, 15);
+
+         /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+         * 5. The next lowest N4=10 bits are the output index of the funds
+         *    consumed by the funding transaction.
+         */
+        scid_out = pull_bits(&ms_entry, &bitoff, 10);
+         /* Ignore the timestamp section for cannounce*/
+         /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+         * 6. The remaining N5=12 bits encode the gossip timestamp in the
+         *    form:
+         *    timestamp % ((2^N5)-1)
+         */
+        /* FIXME: return value from mk_short_channel_id unneeded*/
+        //assert(mk_short_channel_id(scid, scid_blk, scid_tx, scid_out));
+        return mk_short_channel_id(scid, scid_blk, scid_tx, scid_out);
+}
 
 #endif /* EXPERIMENTAL_FEATURES */

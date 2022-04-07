@@ -34,6 +34,9 @@ bool minisketch_handle_cupdate(struct routing_state *rstate,
 bool minisketch_handle_nannounce(struct routing_state *rstate,
                                  const struct node_id *node_id,
                                  u32 timestamp);
+bool minisketch_decode_cannounce(u64 ms_entry,
+                                 struct short_channel_id *scid,
+                                 u32 *timestamp);
 
 #else /* Noop versions */
 static inline void init_minisketch(struct routing_state *rstate)
@@ -99,6 +102,12 @@ bool minisketch_handle_cupdate(struct routing_state *rstate,
 bool minisketch_handle_nannounce(struct routing_state *rstate,
                                  const struct node_id *node_id,
                                  u32 timestamp)
+{
+        return NULL;
+}
+bool minisketch_decode_cannounce(u64 ms_entry,
+                                 struct short_channel_id *scid,
+                                 u32 *timestamp)
 {
         return NULL;
 }
