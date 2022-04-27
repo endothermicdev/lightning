@@ -1,5 +1,7 @@
 #include "config.h"
 #include <bitcoin/short_channel_id.h>
+#include <common/status.h>
+#include <common/type_to_string.h>
 #include <external/minisketch/include/minisketch.h>
 #include <gossipd/minisketch.h>
 #include <gossipd/routing.h>
@@ -19,7 +21,7 @@ void init_minisketch(struct routing_state *rstate)
         rstate->sketch_nannounce_entries = 0;
         rstate->sketch_cupdate_entries = 0;
 }
-
+/* registered through tal_add_destructor via destroy_routing_state */
 void destroy_minisketch(struct routing_state *rstate)
 {
         minisketch_destroy(rstate->minisketch);
@@ -213,21 +215,89 @@ bool minisketch_add_cannounce(struct routing_state *rstate,
         minisketch_add_to_sketch(rstate, ms);
         return true;
 }
-
+void entry_decode(u64 ms_entry){
+        u8 type = minisketch_decode_type(ms_entry);
+        struct short_channel_id scid;
+        u8 side;
+        u32 timestamp;
+        const char * hex;
+        switch (type){
+        case 0:
+                minisketch_decode_cannounce(ms_entry, &scid, &timestamp);
+                hex = type_to_string(NULL, struct short_channel_id, &scid);
+                status_debug("minisketch: cannounce entry %lX decodes to SCID %s, at ts %u.",
+                             ms_entry,
+                             hex,
+                             timestamp);
+                tal_free(hex);
+                break;
+        case 1:
+                minisketch_decode_cupdate(ms_entry, &scid, &side, &timestamp);
+                hex = type_to_string(NULL, struct short_channel_id, &scid);
+                status_debug("minisketch: cupdate entry %lX decodes to SCID %s/%u, at ts %u.",
+                             ms_entry,
+                             hex,
+                             side,
+                             timestamp);
+                tal_free(hex);
+                break;
+        case 2:
+                minisketch_decode_nannounce(ms_entry, &scid, &side, &timestamp);
+                hex = type_to_string(NULL, struct short_channel_id, &scid);
+                status_debug("minisketch: nannounce entry %lX decodes to SCID %s/%u, at ts %u.",
+                             ms_entry,
+                             hex,
+                             side,
+                             timestamp);
+                tal_free(hex);
+                break;
+        }
+}
+bool minisketch_handle_cannounce(struct routing_state *rstate,
+                                 struct chan *chan,
+                                 u32 timestamp){
+        /* called from add_channel_announce_to_broadcast (routing) */
+        u64 ms;
+        ms = minisketch_encode_cannounce(chan);
+        /* Avoid unintentionally duplicating the sketch entry */
+        if(chan->minisketch_channel_announcement){
+                if(!minisketch_sub_from_sketch(rstate, chan->minisketch_channel_announcement))
+                        return false;
+        }
+        if (!minisketch_add_to_sketch(rstate, ms))
+                return false;
+        chan->minisketch_channel_announcement = ms;
+        const char * hex = type_to_string(NULL, struct short_channel_id, &chan->scid);
+        status_debug("minisketch: cannounce sketch entry %lX added for chan %s",ms,hex);
+        tal_free(hex);
+        //FIXME: just a sanity check for now.
+        entry_decode(ms);
+        return true;
+}
 bool minisketch_handle_cupdate(struct routing_state *rstate,
                             struct chan *chan,
-                            u8 direction,
+                            u8 side,
                             u32 timestamp)
 {
         /* called from routing_add_channel_update */
         u64 ms;
-        ms = minisketch_encode_cupdate(chan, direction, timestamp);
+        ms = minisketch_encode_cupdate(chan, side, timestamp);
         /* remove old entry from minisketch if it has one*/
-        if (chan->minisketch_channel_update[direction]){
-                minisketch_sub_from_sketch(rstate, chan->minisketch_channel_update[direction]);
+        if (chan->minisketch_channel_update[side]){
+                if(!minisketch_sub_from_sketch(rstate, chan->minisketch_channel_update[side]))
+                        return false;
         }
-        chan->minisketch_channel_update[direction] = ms;
-        minisketch_add_to_sketch(rstate, ms);
+        if (!minisketch_add_to_sketch(rstate, ms))
+                return false;
+        chan->minisketch_channel_update[side] = ms;
+        //char * hex = tal_hexstr(NULL,(void *)&chan->scid.u64,sizeof(chan->scid));
+        /* FIXME: May use tmpctx here */
+        const char * hex = type_to_string(NULL, struct short_channel_id, &chan->scid);
+        status_debug("minisketch: cupdate sketch entry %lX added for chan %s/%u", ms, hex,
+                     side);
+        tal_free(hex);
+        //FIXME: just a sanity check for now.
+        entry_decode(ms);
         return true;
 }
 
@@ -259,11 +329,23 @@ bool minisketch_handle_nannounce(struct routing_state *rstate,
                 return false;
         u64 ms;
         ms = minisketch_encode_nannounce(low_scid_chan, timestamp, side);
+
         /* remove old entry from minisketch if it has one*/
-        if (node->minisketch_node_announcement)
-                minisketch_sub_from_sketch(rstate,node->minisketch_node_announcement);
+        if (node->minisketch_node_announcement){
+                if(!minisketch_sub_from_sketch(rstate,node->minisketch_node_announcement))
+                        return false;
+        }
         node->minisketch_node_announcement = ms;
-        minisketch_add_to_sketch(rstate, ms);
+        if(!minisketch_add_to_sketch(rstate, ms))
+                return false;
+        const char * scidhex = type_to_string(NULL, struct short_channel_id, &low_scid_chan->scid);
+        const char * nodehex = type_to_string(NULL, struct node_id, node_id);
+        status_debug("minisketch: nannounce sketch entry %lX added for node %s referencing chan %s/%u",
+                     ms, nodehex, scidhex, side);
+        tal_free(scidhex);
+        tal_free(nodehex);
+        //FIXME: just a sanity check for now.
+        entry_decode(ms);
         return true;
 }
 static u64 pull_bits(u64 *val, size_t *bitoff, size_t bits)
@@ -282,6 +364,7 @@ bool minisketch_decode_cannounce(u64 ms_entry,
                                  u32 *timestamp){
         size_t bitoff = 0;
         u32 scid_blk, scid_tx, scid_out;
+        bool status;
         /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
          * Each minisketch gossip entry is encoded in 64 bits in the following
          * manner:
@@ -322,9 +405,113 @@ bool minisketch_decode_cannounce(u64 ms_entry,
          *    form:
          *    timestamp % ((2^N5)-1)
          */
-        /* FIXME: return value from mk_short_channel_id unneeded*/
-        //assert(mk_short_channel_id(scid, scid_blk, scid_tx, scid_out));
-        return mk_short_channel_id(scid, scid_blk, scid_tx, scid_out);
+        status = mk_short_channel_id(scid, scid_blk, scid_tx, scid_out);
+        return status;
 }
+/* decode a channel update minisketch entry into a short_channel_id
+ * Also find relevant gossip entry here? */
+bool minisketch_decode_cupdate(u64 ms_entry,
+                               struct short_channel_id *scid,
+                               u8 *side,
+                               u32 *timestamp){
+        bool status;
+        size_t bitoff = 0;
+        u32 scid_blk, scid_tx, scid_out;
+        /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+        * Each minisketch gossip entry is encoded in 64 bits in the following
+        * manner:
+        * 1. The two lowest bits, N0, specify gossip type:
+        *   * 0 for channel_announcement
+        *   * 1 for channel_update
+        *   * 2 for node_announcement
+        */
+        assert(pull_bits(&ms_entry, &bitoff, 2) == 1);
 
+        /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+        * 2. The next lowest bit, N1, specifies the channel side of the
+        *    gossip.
+        *   * In the case of a channel announcement, bit N1 is ignored.
+        */
+        *side = (u8) pull_bits(&ms_entry, &bitoff, 1);
+
+        /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+        * 3. The next lowest N2=24 bits encode the block height of the
+        *    channel's funding transaction.
+        */
+        scid_blk = pull_bits(&ms_entry, &bitoff, 24);
+
+        /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+        * 4. The next lowest N3=15 bits encode the transaction index of the
+        *    funding transaction.
+        */
+        scid_tx = pull_bits(&ms_entry, &bitoff, 15);
+
+        /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+        * 5. The next lowest N4=10 bits are the output index of the funds
+        *    consumed by the funding transaction.
+        */
+        scid_out = pull_bits(&ms_entry, &bitoff, 10);
+        /* Ignore the timestamp section for cannounce*/
+        /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+        * 6. The remaining N5=12 bits encode the gossip timestamp in the
+        *    form:
+        *    timestamp % ((2^N5)-1)
+        */
+        status = (bool) mk_short_channel_id(scid, scid_blk, scid_tx, scid_out);
+        /* FIXME: use block height */
+        *timestamp = pull_bits(&ms_entry, &bitoff, 12);
+        return status;
+}
+bool minisketch_decode_nannounce(u64 ms_entry,
+                               struct short_channel_id *scid,
+                               u8 *side,
+                               u32 *timestamp){
+        bool status;
+        size_t bitoff = 0;
+        u32 scid_blk, scid_tx, scid_out;
+        /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+        * Each minisketch gossip entry is encoded in 64 bits in the following
+        * manner:
+        * 1. The two lowest bits, N0, specify gossip type:
+        *   * 0 for channel_announcement
+        *   * 1 for channel_update
+        *   * 2 for node_announcement
+        */
+        assert(pull_bits(&ms_entry, &bitoff, 2) == 2);
+
+        /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+        * 2. The next lowest bit, N1, specifies the channel side of the
+        *    gossip.
+        *   * In the case of a channel announcement, bit N1 is ignored.
+        */
+        *side = (u8) pull_bits(&ms_entry, &bitoff, 1);
+
+        /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+        * 3. The next lowest N2=24 bits encode the block height of the
+        *    channel's funding transaction.
+        */
+        scid_blk = pull_bits(&ms_entry, &bitoff, 24);
+
+        /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+        * 4. The next lowest N3=15 bits encode the transaction index of the
+        *    funding transaction.
+        */
+        scid_tx = pull_bits(&ms_entry, &bitoff, 15);
+
+        /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+        * 5. The next lowest N4=10 bits are the output index of the funds
+        *    consumed by the funding transaction.
+        */
+        scid_out = pull_bits(&ms_entry, &bitoff, 10);
+        /* Ignore the timestamp section for cannounce*/
+        /* BOLT-a8fb7f221228f561be14421aebf030972c0c6862 #7:
+        * 6. The remaining N5=12 bits encode the gossip timestamp in the
+        *    form:
+        *    timestamp % ((2^N5)-1)
+        */
+        status = (bool) mk_short_channel_id(scid, scid_blk, scid_tx, scid_out);
+        /* FIXME: use block height */
+        *timestamp = pull_bits(&ms_entry, &bitoff, 12);
+        return status;
+}
 #endif /* EXPERIMENTAL_FEATURES */

@@ -96,6 +96,22 @@ void memleak_remove_htable(struct htable *memtable UNNEEDED, const struct htable
 /* Generated stub for memleak_remove_intmap_ */
 void memleak_remove_intmap_(struct htable *memtable UNNEEDED, const struct intmap *m UNNEEDED)
 { fprintf(stderr, "memleak_remove_intmap_ called!\n"); abort(); }
+/* Generated stub for minisketch_handle_cannounce */
+bool minisketch_handle_cannounce(struct routing_state *rstate UNNEEDED,
+                                 struct chan *chan UNNEEDED,
+                                 u32 timestamp UNNEEDED)
+{ fprintf(stderr, "minisketch_handle_cannounce called!\n"); abort(); }
+/* Generated stub for minisketch_handle_cupdate */
+bool minisketch_handle_cupdate(struct routing_state *rstate UNNEEDED,
+                               struct chan *chan UNNEEDED,
+                               u8 side UNNEEDED,
+                               u32 timestamp UNNEEDED)
+{ fprintf(stderr, "minisketch_handle_cupdate called!\n"); abort(); }
+/* Generated stub for minisketch_handle_nannounce */
+bool minisketch_handle_nannounce(struct routing_state *rstate UNNEEDED,
+                                 const struct node_id *node_id UNNEEDED,
+                                 u32 timestamp UNNEEDED)
+{ fprintf(stderr, "minisketch_handle_nannounce called!\n"); abort(); }
 /* Generated stub for nannounce_different */
 bool nannounce_different(struct gossip_store *gs UNNEEDED,
 			 const struct node *node UNNEEDED,
@@ -138,6 +154,11 @@ struct gossip_store *gossip_store_new(struct routing_state *rstate UNNEEDED,
 {
 	return NULL;
 }
+/* NOOP stub for init_minisketch*/
+void init_minisketch(struct routing_state *rstate UNNEEDED)
+{
+}
+
 /* NOOP stub for destroy_minisketch */
 void destroy_minisketch(struct routing_state *rstate)
 {

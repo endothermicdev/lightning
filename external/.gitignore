@@ -14,3 +14,5 @@ libsecp256k1.a
 libsecp256k1.la
 libwallycore.a
 libwallycore.la
+libminisketch.a
+libminisketch.la

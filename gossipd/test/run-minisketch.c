@@ -107,12 +107,6 @@ char *sanitize_error(const tal_t *ctx UNNEEDED, const u8 *errmsg UNNEEDED,
 void status_failed(enum status_failreason code UNNEEDED,
 		   const char *fmt UNNEEDED, ...)
 { fprintf(stderr, "status_failed called!\n"); abort(); }
-/* Generated stub for status_fmt */
-void status_fmt(enum log_level level UNNEEDED,
-		const struct node_id *peer UNNEEDED,
-		const char *fmt UNNEEDED, ...)
-
-{ fprintf(stderr, "status_fmt called!\n"); abort(); }
 /* Generated stub for towire_warningfmt */
 u8 *towire_warningfmt(const tal_t *ctx UNNEEDED,
 		      const struct channel_id *channel UNNEEDED,
@@ -140,6 +134,11 @@ void gossip_store_delete(struct gossip_store *gs UNNEEDED,
 			 int type UNNEEDED)
 {
 }
+void status_fmt(enum log_level level UNNEEDED,
+		const struct node_id *peer UNNEEDED,
+		const char *fmt UNNEEDED, ...)
+{
+}
 
 #if EXPERIMENTAL_FEATURES
 int main(int argc, char *argv[])
@@ -148,15 +147,16 @@ int main(int argc, char *argv[])
 	struct routing_state *rstate;
         rstate = new_routing_state(tmpctx, talz(tmpctx, struct node_id),
 				   NULL, NULL, NULL, false, false);
-        init_minisketch(rstate);
+        //init_minisketch(rstate); //handled inside new_routing_state
         struct short_channel_id scid;
 	/*Block = 710622 TXindex = 622, Output Index = 0*/
         scid.u64 = 0x0ad7de00026e0000;
 	struct chan *chan1;
 	chan1 = tal(rstate, struct chan);
 	chan1->scid = scid;
-	chan1->minisketch_channel_update[0] = 0;
-	chan1->minisketch_channel_update[1] = 0;
+	//chan1->minisketch_channel_update[0] = 0;
+	//chan1->minisketch_channel_update[1] = 0;
+	init_minisketch_channels(chan1);
         u64 sketch_entry;
 	if (short_channel_id_blocknum(&scid) != 710622)
 		abort();
@@ -188,6 +188,7 @@ int main(int argc, char *argv[])
 		abort();
 	assert(chan1->minisketch_channel_announcement != 0);
 	tal_free(chan1);
+	//handles destroy_routing_state and destroy_minisketch(rstate) via tal_add_destructor
 	common_shutdown();
 	return 0;
 }

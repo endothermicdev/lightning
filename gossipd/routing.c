@@ -13,8 +13,8 @@
 #include <gossipd/gossip_store_wiregen.h>
 #include <gossipd/gossipd.h>
 #include <gossipd/gossipd_wiregen.h>
-#include <gossipd/routing.h>
 #include <gossipd/minisketch.h>
+#include <gossipd/routing.h>
 
 #ifndef SUPERVERBOSE
 #define SUPERVERBOSE(...)
@@ -293,7 +293,9 @@ struct routing_state *new_routing_state(const tal_t *ctx,
 	rstate->local_channel_announced = false;
 	rstate->current_blockheight = 0; /* i.e. unknown */
 	rstate->last_timestamp = 0;
-
+#if EXPERIMENTAL_FEATURES
+	init_minisketch(rstate);
+#endif
 	pending_cannouncement_map_init(&rstate->pending_cannouncements);
 
 	uintmap_init(&rstate->chanmap);
@@ -785,12 +787,14 @@ static void add_channel_announce_to_broadcast(struct routing_state *rstate,
 	/* 0, unless we're loading from store */
 	if (index)
 		chan->bcast.index = index;
-	else
+	else{
 		chan->bcast.index = gossip_store_add(rstate->gs,
 						     channel_announce,
 						     chan->bcast.timestamp,
 						     is_local,
 						     addendum);
+		minisketch_handle_cannounce(rstate, chan, timestamp);
+	}
 	rstate->local_channel_announced |= is_local;
 }
 
@@ -1385,7 +1389,9 @@ bool routing_add_channel_update(struct routing_state *rstate,
 		process_pending_node_announcement(rstate, &chan->nodes[1]->id);
 		tal_free(uc);
 	}
-
+	/* FIXME: Implement independent rate-limit criteria
+	 * FIXME: Migrate minisketch entry to block height from timestamp.*/
+	minisketch_handle_cupdate(rstate, chan, direction, timestamp);
 	status_peer_debug(peer ? &peer->id : NULL,
 			  "Received %schannel_update for channel %s/%d now %s",
 			  ignore_timestamp ? "(forced) " : "",
@@ -1682,12 +1688,13 @@ bool routing_add_node_announcement(struct routing_state *rstate,
 	}
 
 	/* Only log this if *not* loading from store. */
-	if (!index)
+	if (!index){
 		status_peer_debug(peer ? &peer->id : NULL,
 				  "Received node_announcement for node %s",
 				  type_to_string(tmpctx, struct node_id,
 						 &node_id));
-
+		minisketch_handle_nannounce(rstate, &node_id, timestamp);
+	}
 	return true;
 }
 
