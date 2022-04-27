@@ -140,6 +140,10 @@ const char *fmt_featurebits(const tal_t *ctx, const u8 *featurebits);
  * | 38/39 | `option_onion_messages` |... IN ...
  */
 #define OPT_ONION_MESSAGES			38
+/* BOLT-2b1d8658bc4adf5d13d36a37e24949972624f631 #9:
+ * | 100/101 | `option_gossip_set_reconciliation` | Node can receive gossip minisketch
+ */
+#define OPT_GOSSIP_SET_RECONCILIATION		100
 
 #define OPT_SHUTDOWN_WRONG_FUNDING		104
 
