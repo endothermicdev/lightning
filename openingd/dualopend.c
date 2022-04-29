@@ -295,7 +295,7 @@ static u8 *psbt_changeset_get_next(const tal_t *ctx,
 	return NULL;
 }
 
-static void shutdown(struct state *state)
+static void dualopen_shutdown(struct state *state)
 {
 	u8 *msg = towire_dualopend_shutdown_complete(state);
 
@@ -404,9 +404,9 @@ static void handle_peer_shutdown(struct state *state, u8 *msg)
 {
 	u8 *scriptpubkey;
 	struct channel_id cid;
-	struct tlv_shutdown_tlvs *tlvs = tlv_shutdown_tlvs_new(msg);
+	struct tlv_shutdown_tlvs *tlvs;
 
-	if (!fromwire_shutdown(tmpctx, msg, &cid, &scriptpubkey, tlvs))
+	if (!fromwire_shutdown(tmpctx, msg, &cid, &scriptpubkey, &tlvs))
 		open_err_warn(state, "Bad shutdown %s", tal_hex(msg, msg));
 
 	if (tal_count(state->upfront_shutdown_script[REMOTE])
@@ -881,18 +881,23 @@ static bool is_segwit_output(struct wally_tx_output *output,
  * at closing time, rather than when it askes.
  */
 #if DEVELOPER
-static void dualopend_dev_memleak(struct state *state)
+static void handle_dev_memleak(struct state *state, const u8 *msg)
 {
 	struct htable *memtable;
+	bool found_leak;
 
-	/* Populate a hash table with all our allocations. */
-	memtable = memleak_find_allocations(tmpctx, NULL, NULL);
+	/* Populate a hash table with all our allocations (except msg, which
+	 * is in use right now). */
+	memtable = memleak_find_allocations(tmpctx, msg, msg);
 
 	/* Now delete state and things it has pointers to. */
 	memleak_remove_region(memtable, state, tal_bytelen(state));
 
 	/* If there's anything left, dump it to logs, and return true. */
-	dump_memleak(memtable, memleak_status_broken);
+	found_leak = dump_memleak(memtable, memleak_status_broken);
+	wire_sync_write(REQ_FD,
+			take(towire_dualopend_dev_memleak_reply(NULL,
+							        found_leak)));
 }
 #endif /* DEVELOPER */
 
@@ -1053,7 +1058,14 @@ fetch_psbt_changes(struct state *state,
 					    psbt);
 
 	wire_sync_write(REQ_FD, take(msg));
+
 	msg = wire_sync_read(tmpctx, REQ_FD);
+#if DEVELOPER
+	while (fromwire_dualopend_dev_memleak(msg)) {
+		handle_dev_memleak(state, msg);
+		msg = wire_sync_read(tmpctx, REQ_FD);
+	}
+#endif
 
 	if (fromwire_dualopend_fail(msg, msg, &err)) {
 		open_err_warn(state, "%s", err);
@@ -1091,7 +1103,7 @@ static bool send_next(struct state *state,
 	tx_state->changeset = psbt_get_changeset(tx_state, *psbt, updated_psbt);
 
 	/* We want this old psbt to be cleaned up when the changeset is freed */
-	tal_steal(tx_state->changeset, *psbt);
+	tal_steal(tx_state->changeset, notleak(*psbt));
 	*psbt = tal_steal(tx_state, updated_psbt);
 	msg = psbt_changeset_get_next(tmpctx, &state->channel_id,
 				      tx_state->changeset);
@@ -1173,7 +1185,7 @@ static u8 *opening_negotiate_msg(const tal_t *ctx, struct state *state)
 		 * temporary allocations don't grow unbounded. */
 		clean_tmpctx();
 
-		/* This helper routine polls both the peer and gossipd. */
+		/* This helper routine polls the peer. */
 		msg = peer_read(ctx, state->pps);
 
 		/* BOLT #1:
@@ -1190,8 +1202,7 @@ static u8 *opening_negotiate_msg(const tal_t *ctx, struct state *state)
 				  &err, &warning)) {
 			/* BOLT #1:
 			 *
-			 *  - if no existing channel is referred to by the
-			 *    message:
+			 *  - if no existing channel is referred to by `channel_id`:
 			 *    - MUST ignore the message.
 			 */
 			/* In this case, is_peer_error returns true, but sets
@@ -1243,7 +1254,7 @@ static u8 *opening_negotiate_msg(const tal_t *ctx, struct state *state)
 			handle_peer_shutdown(state, msg);
 			/* If we're done, exit */
 			if (shutdown_complete(state))
-				shutdown(state);
+				dualopen_shutdown(state);
 			return NULL;
 		case WIRE_INIT_RBF:
 		case WIRE_OPEN_CHANNEL2:
@@ -1373,7 +1384,7 @@ static bool run_tx_interactive(struct state *state,
 
 			/* Convert tx_bytes to a tx! */
 			len = tal_bytelen(tx_bytes);
-			tx = pull_bitcoin_tx(state, &tx_bytes, &len);
+			tx = pull_bitcoin_tx(tmpctx, &tx_bytes, &len);
 			if (!tx || len != 0)
 				open_err_warn(state, "%s", "Invalid tx sent.");
 
@@ -1448,7 +1459,6 @@ static bool run_tx_interactive(struct state *state,
 							      outpoint.n,
 							      &asset);
 			}
-
 			psbt_input_set_serial_id(psbt, in, serial_id);
 
 			break;
@@ -1719,7 +1729,7 @@ static u8 *accepter_commits(struct state *state,
 	/* Find the funding transaction txid */
 	psbt_txid(NULL, tx_state->psbt, &tx_state->funding.txid, NULL);
 
-	wscript = bitcoin_redeem_2of2(state,
+	wscript = bitcoin_redeem_2of2(tmpctx,
 				      &state->our_funding_pubkey,
 				      &state->their_funding_pubkey);
 
@@ -1771,9 +1781,6 @@ static u8 *accepter_commits(struct state *state,
 			      "Overflow converting accepter_funding "
 			      "to msats");
 
-	if (state->channel)
-		state->channel = tal_free(state->channel);
-
 	type = default_channel_type(NULL,
 				    state->our_features, state->their_features);
 
@@ -1798,6 +1805,7 @@ static u8 *accepter_commits(struct state *state,
 		status_failed(STATUS_FAIL_HSM_IO, "Bad ready_channel_reply %s",
 			      tal_hex(tmpctx, msg));
 
+	tal_free(state->channel);
 	state->channel = new_initial_channel(state,
 					     &state->channel_id,
 					     &tx_state->funding,
@@ -1822,7 +1830,7 @@ static u8 *accepter_commits(struct state *state,
 							     OPT_LARGE_CHANNELS),
 					     REMOTE);
 
-	local_commit = initial_channel_tx(state, &wscript, state->channel,
+	local_commit = initial_channel_tx(tmpctx, &wscript, state->channel,
 					  &state->first_per_commitment_point[LOCAL],
 					  LOCAL, NULL, &error);
 
@@ -1834,18 +1842,21 @@ static u8 *accepter_commits(struct state *state,
 		return NULL;
 	}
 
+	validate_initial_commitment_signature(HSM_FD, local_commit, &remote_sig);
+
 	/* BOLT #2:
 	 *
 	 * The recipient:
 	 *   - if `signature` is incorrect OR non-compliant with LOW-S-standard
 	 *       rule...:
-	 *     - MUST fail the channel.
+	 *     - MUST send a `warning` and close the connection, or send an
+	 *       `error` and fail the channel.
 	 */
 	if (!check_tx_sig(local_commit, 0, NULL, wscript,
 			  &state->their_funding_pubkey, &remote_sig)) {
 		/* BOLT #1:
 		 *
-		 * ### The `error` Message
+		 * ### The `error` and `warning` Messages
 		 *...
 		 * - when failure was caused by an invalid signature check:
 		 *    - SHOULD include the raw, hex-encoded transaction in reply
@@ -1880,7 +1891,7 @@ static u8 *accepter_commits(struct state *state,
 	}
 
 	/* Create commitment tx signatures for remote */
-	remote_commit = initial_channel_tx(state, &wscript, state->channel,
+	remote_commit = initial_channel_tx(tmpctx, &wscript, state->channel,
 					   &state->first_per_commitment_point[REMOTE],
 					   REMOTE, direct_outputs, &error);
 
@@ -1892,11 +1903,17 @@ static u8 *accepter_commits(struct state *state,
 	}
 
 	/* Make HSM sign it */
+	struct simple_htlc **htlcs = tal_arr(tmpctx, struct simple_htlc *, 0);
+	u32 feerate = 0; // unused since there are no htlcs
+	u64 commit_num = 0;
 	msg = towire_hsmd_sign_remote_commitment_tx(NULL,
 						    remote_commit,
 						    &state->channel->funding_pubkey[REMOTE],
 						    &state->first_per_commitment_point[REMOTE],
-						    true);
+						    true,
+						    commit_num,
+						    (const struct simple_htlc **) htlcs,
+						    feerate);
 	wire_sync_write(HSM_FD, take(msg));
 	msg = wire_sync_read(tmpctx, HSM_FD);
 	if (!fromwire_hsmd_sign_tx_reply(msg, &local_sig))
@@ -1950,6 +1967,7 @@ static u8 *accepter_commits(struct state *state,
 		   take(towire_commitment_signed(NULL,
 						 &state->channel_id,
 						 &local_sig.s, NULL)));
+	tal_free(local_commit);
 	return msg;
 }
 
@@ -2019,9 +2037,8 @@ static void accepter_start(struct state *state, const u8 *oc2_msg)
 	struct tx_state *tx_state = state->tx_state;
 
 	state->our_role = TX_ACCEPTER;
-	open_tlv = tlv_opening_tlvs_new(tmpctx);
 
-	if (!fromwire_open_channel2(oc2_msg, &chain_hash,
+	if (!fromwire_open_channel2(tmpctx, oc2_msg, &chain_hash,
 				    &cid,
 				    &tx_state->feerate_per_kw_funding,
 				    &state->feerate_per_kw_commitment,
@@ -2039,7 +2056,7 @@ static void accepter_start(struct state *state, const u8 *oc2_msg)
 				    &state->their_points.htlc,
 				    &state->first_per_commitment_point[REMOTE],
 				    &state->channel_flags,
-				    open_tlv))
+				    &open_tlv))
 		open_err_fatal(state, "Parsing open_channel2 %s",
 			       tal_hex(tmpctx, oc2_msg));
 
@@ -2251,7 +2268,7 @@ static void accepter_start(struct state *state, const u8 *oc2_msg)
 	}
 
 	/* If we have an upfront shutdown script, send it to our peer */
-	struct tlv_accept_tlvs *a_tlv = tlv_accept_tlvs_new(state);
+	struct tlv_accept_tlvs *a_tlv = tlv_accept_tlvs_new(tmpctx);
 	if (!state->upfront_shutdown_script[LOCAL])
 		state->upfront_shutdown_script[LOCAL]
 			= no_upfront_shutdown_script(state,
@@ -2439,6 +2456,7 @@ static u8 *opener_commits(struct state *state,
 		status_failed(STATUS_FAIL_HSM_IO, "Bad ready_channel_reply %s",
 			      tal_hex(tmpctx, msg));
 
+	tal_free(state->channel);
 	state->channel = new_initial_channel(state,
 					     &cid,
 					     &tx_state->funding,
@@ -2462,7 +2480,7 @@ static u8 *opener_commits(struct state *state,
 					     /* Opener is local */
 					     LOCAL);
 
-	remote_commit = initial_channel_tx(state, &wscript,
+	remote_commit = initial_channel_tx(state->channel, &wscript,
 					   state->channel,
 					   &state->first_per_commitment_point[REMOTE],
 					   REMOTE, direct_outputs, &error);
@@ -2473,18 +2491,27 @@ static u8 *opener_commits(struct state *state,
 		revert_channel_state(state);
 		return NULL;
 	}
-
+	/* These can look like a leak, but we free them in revert_channel_state
+	 * or manually below */
+	notleak_with_children(remote_commit);
+	tal_steal(remote_commit, wscript);
 
 	/* We ask the HSM to sign their commitment transaction for us: it knows
 	 * our funding key, it just needs the remote funding key to create the
 	 * witness script.  It also needs the amount of the funding output,
 	 * as segwit signatures commit to that as well, even though it doesn't
 	 * explicitly appear in the transaction itself. */
+	struct simple_htlc **htlcs = tal_arr(tmpctx, struct simple_htlc *, 0);
+	u32 feerate = 0; // unused since there are no htlcs
+	u64 commit_num = 0;
 	msg = towire_hsmd_sign_remote_commitment_tx(NULL,
 						   remote_commit,
 						   &state->channel->funding_pubkey[REMOTE],
 						   &state->first_per_commitment_point[REMOTE],
-						   true);
+						    true,
+						    commit_num,
+						    (const struct simple_htlc **) htlcs,
+						    feerate);
 	wire_sync_write(HSM_FD, take(msg));
 	msg = wire_sync_read(tmpctx, HSM_FD);
 	if (!fromwire_hsmd_sign_tx_reply(msg, &local_sig))
@@ -2528,7 +2555,7 @@ static u8 *opener_commits(struct state *state,
 		return NULL;
 	}
 
-	local_commit = initial_channel_tx(state, &wscript, state->channel,
+	local_commit = initial_channel_tx(tmpctx, &wscript, state->channel,
 					  &state->first_per_commitment_point[LOCAL],
 					  LOCAL, NULL, &error);
 
@@ -2541,19 +2568,22 @@ static u8 *opener_commits(struct state *state,
 		return NULL;
 	}
 
+	validate_initial_commitment_signature(HSM_FD, local_commit, &remote_sig);
+
 	/* BOLT #2:
 	 *
 	 * The recipient:
 	 *   - if `signature` is incorrect OR non-compliant with LOW-S-standard
 	 *     rule...:
-	 *     - MUST fail the channel.
+	 *     - MUST send a `warning` and close the connection, or send an
+	 *       `error` and fail the channel.
 	 */
 	if (!check_tx_sig(local_commit, 0, NULL, wscript,
 			  &state->their_funding_pubkey,
 			  &remote_sig)) {
 		/* BOLT #1:
 		 *
-		 * ### The `error` Message
+		 * ### The `error` and `warning` Messages
 		 *...
 		 * - when failure was caused by an invalid signature check:
 		 *    - SHOULD include the raw, hex-encoded transaction in reply
@@ -2588,10 +2618,12 @@ static u8 *opener_commits(struct state *state,
 	}
 
 	if (direct_outputs[LOCAL])
-		pbase = penalty_base_new(state, 0, remote_commit,
+		pbase = penalty_base_new(tmpctx, 0, remote_commit,
 					 direct_outputs[LOCAL]);
 	else
 		pbase = NULL;
+
+	tal_free(remote_commit);
 
 	peer_billboard(false, "channel open: commitment received, "
 		       "sending to lightningd to save");
@@ -2652,7 +2684,7 @@ static void opener_start(struct state *state, u8 *msg)
 
 	state->our_role = TX_INITIATOR;
 	tx_state->tx_locktime = tx_state->psbt->tx->locktime;
-	open_tlv = tlv_opening_tlvs_new(state);
+	open_tlv = tlv_opening_tlvs_new(tmpctx);
 
 	/* BOLT-* #2
 	 * If the peer's revocation basepoint is unknown (e.g.
@@ -2716,8 +2748,7 @@ static void opener_start(struct state *state, u8 *msg)
 	if (!msg)
 		return;
 
-	a_tlv = notleak(tlv_accept_tlvs_new(state));
-	if (!fromwire_accept_channel2(msg, &cid,
+	if (!fromwire_accept_channel2(state, msg, &cid,
 				      &tx_state->accepter_funding,
 				      &tx_state->remoteconf.dust_limit,
 				      &tx_state->remoteconf.max_htlc_value_in_flight,
@@ -2731,9 +2762,11 @@ static void opener_start(struct state *state, u8 *msg)
 				      &state->their_points.delayed_payment,
 				      &state->their_points.htlc,
 				      &state->first_per_commitment_point[REMOTE],
-				      a_tlv))
+				      &a_tlv))
 		open_err_fatal(state,  "Parsing accept_channel2 %s",
 			       tal_hex(msg, msg));
+	/* FIXME: why? */
+	notleak(a_tlv);
 
 	if (!channel_id_eq(&cid, &state->channel_id)) {
 		struct channel_id future_chan_id;
@@ -2788,7 +2821,7 @@ static void opener_start(struct state *state, u8 *msg)
 	/* If we've requested funds and they've failed to provide
 	 * to lease us (or give them to us for free?!) then we fail.
 	 * This isn't spec'd but it makes the UX predictable */
-	if (open_tlv->request_funds
+	if (!amount_sat_zero(requested_sats)
 	    && amount_sat_less(tx_state->accepter_funding, requested_sats))
 			negotiation_failed(state,
 					   "We requested %s, which is more"
@@ -2807,7 +2840,7 @@ static void opener_start(struct state *state, u8 *msg)
 	 *  - if they decide to accept the offer:
 	 *    - MUST include a `will_fund` tlv
 	 */
-	if (open_tlv->request_funds && a_tlv->will_fund) {
+	if (!amount_sat_zero(requested_sats) && a_tlv->will_fund) {
 		char *err_msg;
 		struct lease_rates *rates = &a_tlv->will_fund->lease_rates;
 
@@ -2985,6 +3018,7 @@ static bool check_funding_feerate(u32 proposed_next_feerate,
 	return next_min <= proposed_next_feerate;
 }
 
+/* Takes ownership of tx_state if successful */
 static void rbf_wrap_up(struct state *state,
 			struct tx_state *tx_state,
 			struct amount_sat total)
@@ -3012,7 +3046,6 @@ static void rbf_wrap_up(struct state *state,
 		if (!send_next(state, tx_state, &tx_state->psbt)) {
 			open_err_warn(state,
 				      "Peer error, has no tx updates.");
-			tal_free(tx_state);
 			return;
 		}
 	}
@@ -3020,7 +3053,6 @@ static void rbf_wrap_up(struct state *state,
 	if (!run_tx_interactive(state, tx_state,
 				&tx_state->psbt,
 				state->our_role)) {
-		tal_free(tx_state);
 		return;
 	}
 
@@ -3029,11 +3061,17 @@ static void rbf_wrap_up(struct state *state,
 	wire_sync_write(REQ_FD, take(msg));
 	msg = wire_sync_read(tmpctx, REQ_FD);
 
+#if DEVELOPER
+	while (fromwire_dualopend_dev_memleak(msg)) {
+		handle_dev_memleak(state, msg);
+		msg = wire_sync_read(tmpctx, REQ_FD);
+	}
+#endif
+
 	if ((msg_type = fromwire_peektype(msg)) == WIRE_DUALOPEND_FAIL) {
 		if (!fromwire_dualopend_fail(msg, msg, &err_reason))
 			master_badmsg(msg_type, msg);
 		open_err_warn(state, "%s", err_reason);
-		tal_free(tx_state);
 		return;
 	}
 
@@ -3056,14 +3094,12 @@ static void rbf_wrap_up(struct state *state,
 			open_err_warn(state, "%s", "Unable to commit");
 		/* We need to 'reset' the channel to what it
 		 * was before we did this. */
-
-		tal_free(tx_state);
 		return;
 	}
 
 	/*  Promote tx_state */
 	tal_free(state->tx_state);
-	state->tx_state = tx_state;
+	state->tx_state = tal_steal(state, tx_state);
 
 	if (state->our_role == TX_ACCEPTER)
 		handle_send_tx_sigs(state, msg);
@@ -3077,15 +3113,17 @@ static void rbf_local_start(struct state *state, u8 *msg)
 	struct channel_id cid;
 	struct amount_sat total;
 	char *err_reason;
+	/* tmpctx gets cleaned midway, so we have a context for this fn */
+	char *rbf_ctx = notleak_with_children(tal(state, char));
 
 	/* We need a new tx_state! */
-	tx_state = new_tx_state(state);
+	tx_state = new_tx_state(rbf_ctx);
 	/* Copy over the channel config info -- everything except
 	 * the reserve will be the same */
 	tx_state->localconf = state->tx_state->localconf;
 	tx_state->remoteconf = state->tx_state->remoteconf;
 
-	if (!fromwire_dualopend_rbf_init(state, msg,
+	if (!fromwire_dualopend_rbf_init(tx_state, msg,
 					 state->our_role == TX_INITIATOR ?
 					 &tx_state->opener_funding :
 						&tx_state->accepter_funding,
@@ -3099,7 +3137,7 @@ static void rbf_local_start(struct state *state, u8 *msg)
 				   state->tx_state->feerate_per_kw_funding)) {
 		open_err_warn(state, "Proposed funding feerate (%u) invalid",
 			      tx_state->feerate_per_kw_funding);
-		return;
+		goto free_rbf_ctx;
 	}
 
 	/* Have you sent us everything we need yet ? */
@@ -3109,8 +3147,7 @@ static void rbf_local_start(struct state *state, u8 *msg)
 		open_err_warn(state, "%s",
 			      "Still waiting for remote funding sigs"
 			      " for last open attempt");
-		tal_free(tx_state);
-		return;
+		goto free_rbf_ctx;
 	}
 
 	tx_state->tx_locktime = tx_state->psbt->tx->locktime;
@@ -3127,8 +3164,7 @@ static void rbf_local_start(struct state *state, u8 *msg)
 	msg = opening_negotiate_msg(tmpctx, state);
 	if (!msg) {
 		open_err_warn(state, "%s", "Unable to init rbf");
-		tal_free(tx_state);
-		return;
+		goto free_rbf_ctx;
 	}
 
 	if (!fromwire_ack_rbf(msg, &cid,
@@ -3150,8 +3186,7 @@ static void rbf_local_start(struct state *state, u8 *msg)
 					     &tx_state->accepter_funding),
 			      type_to_string(tmpctx, struct amount_sat,
 					     &tx_state->opener_funding));
-		tal_free(tx_state);
-		return;
+		goto free_rbf_ctx;
 	}
 	/* Check that total funding doesn't exceed allowed channel capacity */
 	/* BOLT #2:
@@ -3168,8 +3203,7 @@ static void rbf_local_start(struct state *state, u8 *msg)
 			      type_to_string(tmpctx,
 					     struct amount_sat,
 					     &total));
-		tal_free(tx_state);
-		return;
+		goto free_rbf_ctx;
 	}
 
 	/* Now that we know the total of the channel, we can set the reserve */
@@ -3185,12 +3219,14 @@ static void rbf_local_start(struct state *state, u8 *msg)
 				 true, /* v2 means we use anchor outputs */
 				 &err_reason)) {
 		open_err_warn(state, "%s", err_reason);
-		tal_free(tx_state);
-		return;
+		goto free_rbf_ctx;
 	}
 
 	/* We merge with RBF's we've initiated now */
 	rbf_wrap_up(state, tx_state, total);
+
+free_rbf_ctx:
+	tal_free(rbf_ctx);
 }
 
 static void rbf_remote_start(struct state *state, const u8 *rbf_msg)
@@ -3201,9 +3237,11 @@ static void rbf_remote_start(struct state *state, const u8 *rbf_msg)
 	struct amount_sat total;
 	enum dualopend_wire msg_type;
 	u8 *msg;
+	/* tmpctx gets cleaned midway, so we have a context for this fn */
+	char *rbf_ctx = notleak_with_children(tal(state, char));
 
 	/* We need a new tx_state! */
-	tx_state = new_tx_state(state);
+	tx_state = new_tx_state(rbf_ctx);
 
 	if (!fromwire_init_rbf(rbf_msg, &cid,
 			       state->our_role == TX_INITIATOR ?
@@ -3242,8 +3280,7 @@ static void rbf_remote_start(struct state *state, const u8 *rbf_msg)
 			      "Proposed %u, last feerate %u",
 			      tx_state->feerate_per_kw_funding,
 			      state->tx_state->feerate_per_kw_funding);
-		tal_free(tx_state);
-		return;
+		goto free_rbf_ctx;
 	}
 
 	/* We ask master if this is ok */
@@ -3262,8 +3299,7 @@ static void rbf_remote_start(struct state *state, const u8 *rbf_msg)
 		if (!fromwire_dualopend_fail(msg, msg, &err_reason))
 			master_badmsg(msg_type, msg);
 		open_err_warn(state, "%s", err_reason);
-		tal_free(tx_state);
-		return;
+		goto free_rbf_ctx;
 	}
 
 	if (!fromwire_dualopend_got_rbf_offer_reply(state, msg,
@@ -3286,8 +3322,7 @@ static void rbf_remote_start(struct state *state, const u8 *rbf_msg)
 					     &tx_state->accepter_funding),
 			      type_to_string(tmpctx, struct amount_sat,
 					     &tx_state->opener_funding));
-		tal_free(tx_state);
-		return;
+		goto free_rbf_ctx;
 	}
 
 	/* Check that total funding doesn't exceed allowed channel capacity */
@@ -3305,8 +3340,7 @@ static void rbf_remote_start(struct state *state, const u8 *rbf_msg)
 			      type_to_string(tmpctx,
 					     struct amount_sat,
 					     &total));
-		tal_free(tx_state);
-		return;
+		goto free_rbf_ctx;
 	}
 
 	/* Now that we know the total of the channel, we can set the reserve */
@@ -3322,8 +3356,7 @@ static void rbf_remote_start(struct state *state, const u8 *rbf_msg)
 				 true, /* v2 means we use anchor outputs */
 				 &err_reason)) {
 		open_err_warn(state, "%s", err_reason);
-		tal_free(tx_state);
-		return;
+		goto free_rbf_ctx;
 	}
 
 	msg = towire_ack_rbf(tmpctx, &state->channel_id,
@@ -3335,6 +3368,9 @@ static void rbf_remote_start(struct state *state, const u8 *rbf_msg)
 
 	/* We merge with RBF's we've initiated now */
 	rbf_wrap_up(state, tx_state, total);
+
+free_rbf_ctx:
+	tal_free(rbf_ctx);
 }
 
 static void hsm_per_commitment_point(u64 index, struct pubkey *point)
@@ -3429,7 +3465,7 @@ static u8 *handle_funding_depth(struct state *state, u8 *msg)
 /* BOLT #2:
  *
  * A receiving node:
- *  - if `option_static_remotekey` or `option_anchors` applies to the commitment transaction:
+ *  - if `option_static_remotekey` applies to the commitment transaction:
  *    - if `next_revocation_number` is greater than expected above, AND
  *    `your_last_per_commitment_secret` is correct for that
  *    `next_revocation_number` minus 1:
@@ -3475,7 +3511,7 @@ check_future_dataloss_fields(struct state *state,
 
 	/* BOLT #2:
 	 * - MUST NOT broadcast its commitment transaction.
-	 * - SHOULD fail the channel.
+	 * - SHOULD send an `error` to request the peer to fail the channel.
 	 */
 	wire_sync_write(REQ_FD,
 			take(towire_dualopend_fail_fallen_behind(NULL)));
@@ -3531,22 +3567,25 @@ static void do_reconnect_dance(struct state *state)
 				   msg));
 
 	if (!fromwire_channel_reestablish
+#if EXPERIMENTAL_FEATURES
+			(tmpctx, msg, &cid,
+			 &next_commitment_number,
+			 &next_revocation_number,
+			 &last_local_per_commit_secret,
+			 &remote_current_per_commit_point,
+			 &tlvs)
+#else
 			(msg, &cid,
 			 &next_commitment_number,
 			 &next_revocation_number,
 			 &last_local_per_commit_secret,
-			 &remote_current_per_commit_point
-#if EXPERIMENTAL_FEATURES
-			 , tlvs
+			 &remote_current_per_commit_point)
 #endif
-				))
+				)
 		open_err_fatal(state, "Bad reestablish msg: %s %s",
 			       peer_wire_name(fromwire_peektype(msg)),
 			       tal_hex(msg, msg));
 
-#if EXPERIMENTAL_FEATURES
-	tal_free(tlvs);
-#endif /* EXPERIMENTAL_FEATURES */
 	check_channel_id(state, &cid, &state->channel_id);
 
 	status_debug("Got dualopend reestablish commit=%"PRIu64
@@ -3557,7 +3596,7 @@ static void do_reconnect_dance(struct state *state)
 	/* BOLT #2:
 	 *    - if it has not sent `revoke_and_ack`, AND
 	 *      `next_revocation_number` is not equal to 0:
-	 *      - SHOULD fail the channel.
+	 *      - SHOULD send an `error` and fail the channel.
 	 */
 	/* It's possible that we've opened an outdated copy of the
 	 * database, and the peer is very much ahead of us.
@@ -3601,6 +3640,11 @@ static u8 *handle_master_in(struct state *state)
 	enum dualopend_wire t = fromwire_peektype(msg);
 
 	switch (t) {
+	case WIRE_DUALOPEND_DEV_MEMLEAK:
+#if DEVELOPER
+		handle_dev_memleak(state, msg);
+#endif
+		return NULL;
 	case WIRE_DUALOPEND_OPENER_INIT:
 		opener_start(state, msg);
 		return NULL;
@@ -3627,6 +3671,7 @@ static u8 *handle_master_in(struct state *state)
 	case WIRE_DUALOPEND_GOT_RBF_OFFER_REPLY:
 	case WIRE_DUALOPEND_RBF_VALID:
 	case WIRE_DUALOPEND_VALIDATE_LEASE_REPLY:
+	case WIRE_DUALOPEND_DEV_MEMLEAK_REPLY:
 
 	/* Messages we send */
 	case WIRE_DUALOPEND_GOT_OFFER:
@@ -3868,6 +3913,11 @@ int main(int argc, char *argv[])
 		/* We can pull the commitment feerate out of the feestates */
 		state->feerate_per_kw_commitment
 			= get_feerate(fee_states, opener, LOCAL);
+
+		/* No longer need this */
+		tal_free(fee_states);
+		/* This psbt belongs to tx_state, not state! */
+		tal_steal(state->tx_state, state->tx_state->psbt);
 	} else
 		master_badmsg(fromwire_peektype(msg), msg);
 
@@ -3893,10 +3943,7 @@ int main(int argc, char *argv[])
 	 * N'th per-commitment point.  But since N=0, it won't give us one. */
 	assert(none == NULL);
 
-	/*~ Turns out this is useful for testing, to make sure we're ready. */
-	status_debug("Handed peer, entering loop");
-
-	/*~ We manually run a little poll() loop here.  With only three fds */
+	/*~ We manually run a little poll() loop here.  With only two fds */
 	pollfd[0].fd = REQ_FD;
 	pollfd[0].events = POLLIN;
 	pollfd[1].fd = state->pps->peer_fd;
@@ -3935,19 +3982,14 @@ int main(int argc, char *argv[])
 		clean_tmpctx();
 	}
 
-	/*~ Write message and hand back the peer fd and gossipd fd.  This also
-	 * means that if the peer or gossipd wrote us any messages we didn't
+	/*~ Write message and hand back the peer fd.  This also
+	 * means that if the peer wrote us any messages we didn't
 	 * read yet, it will simply be read by the next daemon. */
 	wire_sync_write(REQ_FD, msg);
 	per_peer_state_fdpass_send(REQ_FD, state->pps);
 	status_debug("Sent %s with fds",
 		     dualopend_wire_name(fromwire_peektype(msg)));
 	tal_free(msg);
-
-#if DEVELOPER
-	/* Now look for memory leaks. */
-	dualopend_dev_memleak(state);
-#endif /* DEVELOPER */
 
 	/* This frees the entire tal tree. */
 	tal_free(state);

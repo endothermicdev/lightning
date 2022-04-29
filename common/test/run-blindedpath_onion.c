@@ -132,8 +132,7 @@ static u8 *next_onion(const tal_t *ctx, u8 *omsg,
 	cursor = rs->raw_payload;
 	max = tal_bytelen(rs->raw_payload);
 	maxlen = fromwire_bigsize(&cursor, &max);
-	om = tlv_onionmsg_payload_new(tmpctx);
-	assert(fromwire_onionmsg_payload(&cursor, &maxlen, om));
+	om = fromwire_tlv_onionmsg_payload(tmpctx, &cursor, &maxlen);
 
 	if (rs->nextcase == ONION_END)
 		return NULL;
@@ -204,7 +203,7 @@ int main(int argc, char *argv[])
 			= tlv_onionmsg_payload_new(tmpctx);
 		payload->encrypted_data_tlv = enctlv[i];
 		onionmsg_payload[i] = tal_arr(tmpctx, u8, 0);
-		towire_onionmsg_payload(&onionmsg_payload[i], payload);
+		towire_tlv_onionmsg_payload(&onionmsg_payload[i], payload);
 		sphinx_add_modern_hop(sphinx_path, &alias[i],
 				      onionmsg_payload[i]);
 	}

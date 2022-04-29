@@ -10,6 +10,7 @@
 #include <common/peer_status_wiregen.h>
 #include <common/status_wiregen.h>
 #include <common/version.h>
+#include <db/exec.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <lightningd/lightningd.h>
@@ -137,11 +138,11 @@ static void disable_cb(void *disabler UNUSED, struct subd_req *sr)
 	sr->disabler = NULL;
 }
 
-static void add_req(const tal_t *ctx,
-		    struct subd *sd, int type, size_t num_fds_in,
-		    void (*replycb)(struct subd *, const u8 *, const int *,
-				    void *),
-		    void *replycb_data)
+static struct subd_req *add_req(const tal_t *ctx,
+				struct subd *sd, int type, size_t num_fds_in,
+				void (*replycb)(struct subd *, const u8 *, const int *,
+						void *),
+				void *replycb_data)
 {
 	struct subd_req *sr = tal(sd, struct subd_req);
 
@@ -163,6 +164,8 @@ static void add_req(const tal_t *ctx,
 	/* Keep in FIFO order: we sent in order, so replies will be too. */
 	list_add_tail(&sd->reqs, &sr->list);
 	tal_add_destructor(sr, destroy_subd_req);
+
+	return sr;
 }
 
 /* Caller must free. */
@@ -687,7 +690,8 @@ static struct io_plan *msg_setup(struct io_conn *conn, struct subd *sd)
 			 msg_send_next(conn, sd));
 }
 
-static struct subd *new_subd(struct lightningd *ld,
+static struct subd *new_subd(const tal_t *ctx,
+			     struct lightningd *ld,
 			     const char *name,
 			     void *channel,
 			     const struct node_id *node_id,
@@ -707,7 +711,7 @@ static struct subd *new_subd(struct lightningd *ld,
 						 const char *happenings),
 			     va_list *ap)
 {
-	struct subd *sd = tal(ld, struct subd);
+	struct subd *sd = tal(ctx, struct subd);
 	int msg_fd;
 	const char *debug_subd = NULL;
 	const char *shortname;
@@ -788,7 +792,7 @@ struct subd *new_global_subd(struct lightningd *ld,
 	struct subd *sd;
 
 	va_start(ap, msgcb);
-	sd = new_subd(ld, name, NULL, NULL, NULL, false,
+	sd = new_subd(ld, ld, name, NULL, NULL, NULL, false,
 		      msgname, msgcb, NULL, NULL, &ap);
 	va_end(ap);
 
@@ -796,7 +800,8 @@ struct subd *new_global_subd(struct lightningd *ld,
 	return sd;
 }
 
-struct subd *new_channel_subd_(struct lightningd *ld,
+struct subd *new_channel_subd_(const tal_t *ctx,
+			       struct lightningd *ld,
 			       const char *name,
 			       void *channel,
 			       const struct node_id *node_id,
@@ -819,7 +824,7 @@ struct subd *new_channel_subd_(struct lightningd *ld,
 	struct subd *sd;
 
 	va_start(ap, billboardcb);
-	sd = new_subd(ld, name, channel, node_id, base_log,
+	sd = new_subd(ctx, ld, name, channel, node_id, base_log,
 		      talks_to_peer, msgname, msgcb, errcb, billboardcb, &ap);
 	va_end(ap);
 	return sd;
@@ -839,12 +844,12 @@ void subd_send_fd(struct subd *sd, int fd)
 	msg_enqueue_fd(sd->outq, fd);
 }
 
-void subd_req_(const tal_t *ctx,
-	       struct subd *sd,
-	       const u8 *msg_out,
-	       int fd_out, size_t num_fds_in,
-	       void (*replycb)(struct subd *, const u8 *, const int *, void *),
-	       void *replycb_data)
+struct subd_req *subd_req_(const tal_t *ctx,
+			   struct subd *sd,
+			   const u8 *msg_out,
+			   int fd_out, size_t num_fds_in,
+			   void (*replycb)(struct subd *, const u8 *, const int *, void *),
+			   void *replycb_data)
 {
 	/* Grab type now in case msg_out is taken() */
 	int type = fromwire_peektype(msg_out);
@@ -853,7 +858,7 @@ void subd_req_(const tal_t *ctx,
 	if (fd_out >= 0)
 		subd_send_fd(sd, fd_out);
 
-	add_req(ctx, sd, type, num_fds_in, replycb, replycb_data);
+	return add_req(ctx, sd, type, num_fds_in, replycb, replycb_data);
 }
 
 /* SIGALRM terminates by default: we just want it to interrupt waitpid(),

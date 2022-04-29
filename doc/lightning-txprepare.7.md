@@ -4,20 +4,20 @@ lightning-txprepare -- Command to prepare to withdraw funds from the internal wa
 SYNOPSIS
 --------
 
-**txprepare** *outputs* \[*feerate*\] \[*minconf*\] \[*utxos*\]
+**txprepare** *outputs* [*feerate*] [*minconf*] [*utxos*]
 
 DESCRIPTION
 -----------
 
 The **txprepare** RPC command creates an unsigned transaction which
-spends funds from c-lightning's internal wallet to the outputs specified
+spends funds from Core Lightning's internal wallet to the outputs specified
 in *outputs*.
 
 The *outputs* is the array of output that include *destination*
 and *amount*(\{*destination*: *amount*\}). Its format is like:
-\[\{address1: amount1\}, \{address2: amount2\}\]
+[\{address1: amount1\}, \{address2: amount2\}]
 or
-\[\{address: *all*\}\].
+[\{address: *all*\}].
 It supports any number of **confirmed** outputs.
 
 The *destination* of output is the address which can be of any Bitcoin accepted

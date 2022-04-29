@@ -1,6 +1,6 @@
 /*~ Welcome, wonderful reader!
  *
- * This is the core of c-lightning: the main file of the master daemon
+ * This is the Core of um, Core Lightning: the main file of the master daemon
  * `lightningd`.  It's mainly cluttered with the miscellany of setup,
  * and a few startup sanity checks.
  *
@@ -37,6 +37,7 @@
  */
 #include <ccan/array_size/array_size.h>
 #include <ccan/closefrom/closefrom.h>
+#include <ccan/json_escape/json_escape.h>
 #include <ccan/opt/opt.h>
 #include <ccan/pipecmd/pipecmd.h>
 #include <ccan/read_write_all/read_write_all.h>
@@ -53,6 +54,7 @@
 #include <common/timeout.h>
 #include <common/type_to_string.h>
 #include <common/version.h>
+#include <db/exec.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -134,6 +136,7 @@ static struct lightningd *new_lightningd(const tal_t *ctx)
 	ld->dev_ignore_modern_onion = false;
 	ld->dev_ignore_obsolete_onion = false;
 	ld->dev_disable_commit = -1;
+	ld->dev_no_ping_timer = false;
 #endif
 
 	/*~ These are CCAN lists: an embedded double-linked list.  It's not
@@ -192,6 +195,7 @@ static struct lightningd *new_lightningd(const tal_t *ctx)
 	list_head_init(&ld->sendpay_commands);
 	list_head_init(&ld->close_commands);
 	list_head_init(&ld->ping_commands);
+	list_head_init(&ld->disconnect_commands);
 	list_head_init(&ld->waitblockheight_commands);
 
 	/*~ Tal also explicitly supports arrays: it stores the number of
@@ -201,6 +205,9 @@ static struct lightningd *new_lightningd(const tal_t *ctx)
 	 * NULL.  So we start with a zero-length array. */
 	ld->proposed_wireaddr = tal_arr(ld, struct wireaddr_internal, 0);
 	ld->proposed_listen_announce = tal_arr(ld, enum addr_listen_announce, 0);
+
+	ld->remote_addr_v4 = NULL;
+	ld->remote_addr_v6 = NULL;
 	ld->listen = true;
 	ld->autolisten = true;
 	ld->reconnect = true;
@@ -240,7 +247,7 @@ static struct lightningd *new_lightningd(const tal_t *ctx)
 
 	/*~ We run a number of plugins (subprocesses that we talk JSON-RPC with)
 	 * alongside this process. This allows us to have an easy way for users
-	 * to add their own tools without having to modify the c-lightning source
+	 * to add their own tools without having to modify the Core Lightning source
 	 * code. Here we initialize the context that will keep track and control
 	 * the plugins.
 	 */
@@ -810,12 +817,13 @@ static struct feature_set *default_features(const tal_t *ctx)
 		OPTIONAL_FEATURE(OPT_DATA_LOSS_PROTECT),
 		OPTIONAL_FEATURE(OPT_UPFRONT_SHUTDOWN_SCRIPT),
 		OPTIONAL_FEATURE(OPT_GOSSIP_QUERIES),
-		OPTIONAL_FEATURE(OPT_VAR_ONION),
+		COMPULSORY_FEATURE(OPT_VAR_ONION),
 		COMPULSORY_FEATURE(OPT_PAYMENT_SECRET),
 		OPTIONAL_FEATURE(OPT_BASIC_MPP),
 		OPTIONAL_FEATURE(OPT_GOSSIP_QUERIES_EX),
 		OPTIONAL_FEATURE(OPT_STATIC_REMOTEKEY),
 		OPTIONAL_FEATURE(OPT_SHUTDOWN_ANYSEGWIT),
+		OPTIONAL_FEATURE(OPT_PAYMENT_METADATA),
 #if EXPERIMENTAL_FEATURES
 		OPTIONAL_FEATURE(OPT_ANCHOR_OUTPUTS),
 		OPTIONAL_FEATURE(OPT_QUIESCE),
@@ -1146,7 +1154,7 @@ int main(int argc, char *argv[])
 	/*~ This is where we ask connectd to reconnect to any peers who have
 	 * live channels with us, and makes sure we're watching the funding
 	 * tx. */
-	activate_peers(ld);
+	setup_peers(ld);
 
 	/*~ Now that all the notifications for transactions are in place, we
 	 *  can start the poll loop which queries bitcoind for new blocks. */

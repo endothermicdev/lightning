@@ -1,4 +1,4 @@
-lightning-getinfo -- Command to receive all information about the c-lightning node.
+lightning-getinfo -- Command to receive all information about the Core Lightning node.
 ============================================================
 
 SYNOPSIS
@@ -39,6 +39,11 @@ On success, an object is returned, containing:
 - **blockheight** (u32): The highest block height we've learned
 - **network** (string): represents the type of network on the node are working (e.g: `bitcoin`, `testnet`, or `regtest`)
 - **fees_collected_msat** (msat): Total routing fees collected by this node
+- **our_features** (object, optional): Our BOLT #9 feature bits (as hexstring) for various contexts:
+  - **init** (hex): features (incl. globalfeatures) in our init message, these also restrict what we offer in open_channel or accept in accept_channel
+  - **node** (hex): features in our node_announcement message
+  - **channel** (hex): negotiated channel features we (as channel initiator) publish in the channel_announcement message
+  - **invoice** (hex): features in our BOLT11 invoices
 - **address** (array of objects, optional): The addresses we announce to the world:
   - **type** (string): Type of connection (one of "dns", "ipv4", "ipv6", "torv2", "torv3", "websocket")
   - **port** (u16): port number
@@ -91,12 +96,18 @@ EXAMPLE JSON RESPONSE
          "port": 9736
       }
    ],
-   "version": "0.9.0",
-   "blockheight": 644297,
+   "version": "v0.10.2",
+   "blockheight": 724302,
    "network": "bitcoin",
    "msatoshi_fees_collected": 0,
    "fees_collected_msat": "0msat",
    "lightning-dir": "/media/vincent/Maxtor/C-lightning/node/bitcoin"
+   "our_features": {
+      "init": "8828226aa2",
+      "node": "80008828226aa2",
+      "channel": "",
+      "invoice": "20024200"
+   }
 }
 
 ```
@@ -117,4 +128,4 @@ RESOURCES
 ---------
 
 Main web site: <https://github.com/ElementsProject/lightning>
-[comment]: # ( SHA256STAMP:90a3bacb6cb4456119afee8e60677c29bf5f46c4cd950e660a9f9c8e0433b473)
+[comment]: # ( SHA256STAMP:52175b0eced3ed2992d27b983b50afe080134702874116ce0c8355a8adddd440)

@@ -16,7 +16,7 @@ struct tlv_record_type {
 
 /* A single TLV field, consisting of the data and its associated metadata. */
 struct tlv_field {
-	/* If this is a type that is known to c-lightning we have a pointer to
+	/* If this is a type that is known to Core Lightning we have a pointer to
 	 * the metadata. */
 	const struct tlv_record_type *meta;
 
@@ -38,18 +38,34 @@ struct tlv_field *tlv_make_fields_(const struct tlv_record_type *types,
 				   size_t num_types,
 				   const void *record);
 
-/* Generic TLV decode/encode */
+/**
+ * fromwire_tlv: generic TLV decode engine
+ * @cursor: cursor to update (set to NULL if we fail).
+ * @max: max len to update (always set to 0 if we succeed).
+ * @types / @num_types: table of known tlv types
+ * @record: the tlv to hand to @type-specific decode
+ * @fields: the fields array to populate
+ * @extra_types: tal_arr of unknown types to allow, or NULL, or FROMWIRE_TLV_ANY_TYPE.
+ * @err_off: NULL, or set to offset in tlv stream which failed.
+ * @err_type: NULL, or set to tlv type which failed (or 0 if malformed)
+ */
 bool fromwire_tlv(const u8 **cursor, size_t *max,
 		  const struct tlv_record_type *types, size_t num_types,
-		  void *record, struct tlv_field **fields);
+		  void *record, struct tlv_field **fields,
+		  const u64 *extra_types, size_t *err_off, u64 *err_type);
 void towire_tlv(u8 **pptr,
 		const struct tlv_record_type *types, size_t num_types,
 		const void *record);
-bool tlv_fields_valid(const struct tlv_field *fields, u64 *allow_extra,
-		      size_t *err_index);
+
+/* Get the offset of this field: returns size of msg if not found (or
+ * tlv malformed) */
+size_t tlv_field_offset(const u8 *tlvstream, size_t tlvlen, u64 fieldtype);
+
+/* Constant for fromwire_tlv to allow absolutely any unknown type. */
+extern const u64 *FROMWIRE_TLV_ANY_TYPE;
 
 /* Generic primitive setters for tlvstreams. */
-void tlvstream_set_raw(struct tlv_field **stream, u64 type, void *value TAKES, size_t valuelen);
+void tlvstream_set_raw(struct tlv_field **stream, u64 type, const void *value TAKES, size_t valuelen);
 void tlvstream_set_short_channel_id(struct tlv_field **stream, u64 type,
 				    struct short_channel_id *value);
 void tlvstream_set_tu64(struct tlv_field **stream, u64 type, u64 value);

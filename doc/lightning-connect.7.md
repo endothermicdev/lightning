@@ -4,7 +4,7 @@ lightning-connect -- Command for connecting to another lightning node
 SYNOPSIS
 --------
 
-**connect** *id* \[*host* *port*\]
+**connect** *id* [*host*] [*port*]
 
 DESCRIPTION
 -----------
@@ -36,13 +36,17 @@ Connecting to a node is just the first step in opening a channel with
 another node. Once the peer is connected a channel can be opened with
 lightning-fundchannel(7).
 
+If there are active channels with the peer, **connect** returns once
+all the subdaemons are in place to handle the channels, not just once
+it's connected.
+
 RETURN VALUE
 ------------
 
 [comment]: # (GENERATE-FROM-SCHEMA-START)
 On success, an object is returned, containing:
 - **id** (pubkey): the peer we connected to
-- **features** (hex): BOLT 9 features bitmap offered by peer
+- **features** (hex): BOLT 9 features bitmap offered by peer in init message (globalfeatures and features combined)
 - **direction** (string): Whether they initiated connection or we did (one of "in", "out")
 - **address** (object): Address information (mainly useful if **direction** is *out*):
   - **type** (string): Type of connection (*torv2*/*torv3* only if **direction** is *out*) (one of "local socket", "ipv4", "ipv6", "torv2", "torv3")

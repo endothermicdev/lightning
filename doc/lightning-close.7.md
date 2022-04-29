@@ -4,7 +4,7 @@ lightning-close -- Command for closing channels with direct peers
 SYNOPSIS
 --------
 
-**close** *id* \[*unilateraltimeout*\] \[*destination*\] \[*fee_negotiation_step*\] \[*wrong_funding*\] \[*force_lease_closed*\] [\*feerange\*]
+**close** *id* [*unilateraltimeout*] [*destination*] [*fee_negotiation_step*] [*wrong_funding*] [*force_lease_closed*] [\*feerange\*]
 
 DESCRIPTION
 -----------
@@ -25,8 +25,8 @@ If *unilateraltimeout* is zero, then the **close** command will wait
 indefinitely until the peer is online and can negotiate a mutual close.
 The default is 2 days (172800 seconds).
 
-The *destination* can be of any Bitcoin accepted type, including bech32.
-If it isn't specified, the default is a c-lightning wallet address.  If
+The *destination* can be of any Bitcoin bech32 type.
+If it isn't specified, the default is a Core Lightning wallet address.  If
 the peer hasn't offered the `option_shutdown_anysegwit` feature, then
 taproot addresses (or other v1+ segwit) are not allowed.  Tell your
 friends to upgrade!

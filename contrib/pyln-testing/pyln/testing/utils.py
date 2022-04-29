@@ -53,7 +53,7 @@ def env(name, default=None):
     """Access to environment variables
 
     Allows access to environment variables, falling back to config.vars (part
-    of c-lightning's `./configure` output), and finally falling back to a
+    of Core Lightning's `./configure` output), and finally falling back to a
     default value.
 
     """
@@ -277,9 +277,12 @@ class TailableProc(object):
     def wait_for_logs(self, regexs, timeout=TIMEOUT):
         """Look for `regexs` in the logs.
 
-        We tail the stdout of the process and look for each regex in `regexs`,
-        starting from last of the previous waited-for log entries (if any).  We
-        fail if the timeout is exceeded or if the underlying process
+        The logs contain tailed stdout of the process. We look for each regex
+        in `regexs`, starting from `logsearch_start` which normally is the
+        position of the last found entry of a previous wait-for logs call.
+        The ordering inside `regexs` doesn't matter.
+
+        We fail if the timeout is exceeded or if the underlying process
         exits before all the `regexs` were found.
 
         If timeout is None, no time-out is applied.
@@ -422,7 +425,7 @@ class BitcoinD(TailableProc):
     # int > 0 := wait for at least N transactions
     # 'tx_id' := wait for one transaction id given as a string
     # ['tx_id1', 'tx_id2'] := wait until all of the specified transaction IDs
-    def generate_block(self, numblocks=1, wait_for_mempool=0):
+    def generate_block(self, numblocks=1, wait_for_mempool=0, to_addr=None):
         if wait_for_mempool:
             if isinstance(wait_for_mempool, str):
                 wait_for_mempool = [wait_for_mempool]
@@ -439,7 +442,9 @@ class BitcoinD(TailableProc):
         ))
 
         # As of 0.16, generate() is removed; use generatetoaddress.
-        return self.rpc.generatetoaddress(numblocks, self.rpc.getnewaddress())
+        if to_addr is None:
+            to_addr = self.rpc.getnewaddress()
+        return self.rpc.generatetoaddress(numblocks, to_addr)
 
     def simple_reorg(self, height, shift=0):
         """
@@ -623,22 +628,36 @@ class PrettyPrintingLightningRpc(LightningRpc):
             patch_json,
         )
         self.jsonschemas = jsonschemas
+        self.check_request_schemas = True
 
     def call(self, method, payload=None):
         id = self.next_id
+        schemas = self.jsonschemas.get(method)
         self.logger.debug(json.dumps({
             "id": id,
             "method": method,
             "params": payload
         }, indent=2))
+
+        # We only check payloads which are dicts, which is what we
+        # usually use: there are some cases which tests [] params,
+        # which we ignore.
+        if schemas and schemas[0] and isinstance(payload, dict) and self.check_request_schemas:
+            # fields which are None are explicitly removed, so do that now
+            testpayload = {}
+            for k, v in payload.items():
+                if v is not None:
+                    testpayload[k] = v
+            schemas[0].validate(testpayload)
+
         res = LightningRpc.call(self, method, payload)
         self.logger.debug(json.dumps({
             "id": id,
             "result": res
         }, indent=2))
 
-        if method in self.jsonschemas:
-            self.jsonschemas[method].validate(res)
+        if schemas and schemas[1]:
+            schemas[1].validate(res)
 
         return res
 
@@ -729,21 +748,16 @@ class LightningNode(object):
         if connect and not self.is_connected(remote_node):
             self.connect(remote_node)
 
-        fundingtx = self.rpc.fundchannel(remote_node.info['id'], capacity)
-
-        # Wait for the funding transaction to be in bitcoind's mempool
-        wait_for(lambda: fundingtx['txid'] in self.bitcoin.rpc.getrawmempool())
+        res = self.rpc.fundchannel(remote_node.info['id'], capacity)
 
         if confirm or wait_for_announce:
-            self.bitcoin.generate_block(1)
+            self.bitcoin.generate_block(1, wait_for_mempool=res['txid'])
 
         if wait_for_announce:
             self.bitcoin.generate_block(5)
+            wait_for(lambda: ['alias' in e for e in self.rpc.listnodes(remote_node.info['id'])['nodes']])
 
-        if confirm or wait_for_announce:
-            self.daemon.wait_for_log(
-                r'Funding tx {} depth'.format(fundingtx['txid']))
-        return {'address': addr, 'wallettxid': wallettxid, 'fundingtx': fundingtx}
+        return {'address': addr, 'wallettxid': wallettxid, 'fundingtx': res['tx']}
 
     def fundwallet(self, sats, addrtype="p2sh-segwit", mine_block=True):
         addr = self.rpc.newaddr(addrtype)[addrtype]
@@ -779,22 +793,15 @@ class LightningNode(object):
 
         self.rpc.connect(remote_node.info['id'], 'localhost', remote_node.port)
 
-        # Make sure the fundchannel is confirmed.
-        num_tx = len(self.bitcoin.rpc.getrawmempool())
         res = self.rpc.fundchannel(remote_node.info['id'], chan_capacity, feerate='slow', minconf=0, announce=announce, push_msat=Millisatoshi(chan_capacity * 500))
-        wait_for(lambda: len(self.bitcoin.rpc.getrawmempool()) == num_tx + 1)
-        blockid = self.bitcoin.generate_block(1)[0]
+        blockid = self.bitcoin.generate_block(1, wait_for_mempool=res['txid'])[0]
 
         # Generate the scid.
-        outnum = get_tx_p2wsh_outnum(self.bitcoin, res['tx'], total_capacity)
-        if outnum is None:
-            raise ValueError("no outnum found. capacity {} tx {}".format(total_capacity, res['tx']))
-
         for i, txid in enumerate(self.bitcoin.rpc.getblock(blockid)['tx']):
             if txid == res['txid']:
                 txnum = i
 
-        return '{}x{}x{}'.format(self.bitcoin.rpc.getblockcount(), txnum, outnum)
+        return '{}x{}x{}'.format(self.bitcoin.rpc.getblockcount(), txnum, res['outnum'])
 
     def getactivechannels(self):
         return [c for c in self.rpc.listchannels()['channels'] if c['active']]
@@ -895,8 +902,7 @@ class LightningNode(object):
         res = self.rpc.fundchannel(l2.info['id'], amount,
                                    announce=announce_channel,
                                    **kwargs)
-        wait_for(lambda: res['txid'] in self.bitcoin.rpc.getrawmempool())
-        blockid = self.bitcoin.generate_block(1)[0]
+        blockid = self.bitcoin.generate_block(1, wait_for_mempool=res['txid'])[0]
 
         for i, txid in enumerate(self.bitcoin.rpc.getblock(blockid)['tx']):
             if txid == res['txid']:
@@ -1146,6 +1152,39 @@ class LightningNode(object):
         except RpcError:
             return None
 
+    def dev_pay(self, bolt11, msatoshi=None, label=None, riskfactor=None,
+                maxfeepercent=None, retry_for=None,
+                maxdelay=None, exemptfee=None, use_shadow=True, exclude=[]):
+        """Wrapper for rpc.dev_pay which suppresses the request schema"""
+        # FIXME? dev options are not in schema
+        old_check = self.rpc.check_request_schemas
+        self.rpc.check_request_schemas = False
+        ret = self.rpc.dev_pay(bolt11, msatoshi, label, riskfactor,
+                               maxfeepercent, retry_for,
+                               maxdelay, exemptfee, use_shadow, exclude)
+        self.rpc.check_request_schemas = old_check
+        return ret
+
+    def dev_invoice(self, msatoshi, label, description, expiry=None, fallbacks=None, preimage=None, exposeprivatechannels=None, cltv=None, dev_routes=None):
+        """Wrapper for rpc.invoice() with dev-routes option"""
+        payload = {
+            "msatoshi": msatoshi,
+            "label": label,
+            "description": description,
+            "expiry": expiry,
+            "fallbacks": fallbacks,
+            "preimage": preimage,
+            "exposeprivatechannels": exposeprivatechannels,
+            "cltv": cltv,
+            "dev-routes": dev_routes,
+        }
+        # FIXME? dev options are not in schema
+        old_check = self.rpc.check_request_schemas
+        self.rpc.check_request_schemas = False
+        ret = self.rpc.call("invoice", payload)
+        self.rpc.check_request_schemas = old_check
+        return ret
+
 
 @contextmanager
 def flock(directory: Path):
@@ -1366,7 +1405,7 @@ class NodeFactory(object):
         return node
 
     def join_nodes(self, nodes, fundchannel=True, fundamount=FUNDAMOUNT, wait_for_announce=False, announce_channels=True) -> None:
-        """Given nodes, connect them in a line, optionally funding a channel"""
+        """Given nodes, connect them in a line, optionally funding a channel, wait_for_announce waits for channel and node announcements"""
         assert not (wait_for_announce and not announce_channels), "You've asked to wait for an announcement that's not coming. (wait_for_announce=True,announce_channels=False)"
         connections = [(nodes[i], nodes[i + 1]) for i in range(len(nodes) - 1)]
 
@@ -1377,7 +1416,7 @@ class NodeFactory(object):
         # getpeers.
         if not fundchannel:
             for src, dst in connections:
-                dst.daemon.wait_for_log(r'{}-.*-chan#[0-9]*: Handed peer, entering loop'.format(src.info['id']))
+                dst.daemon.wait_for_log(r'{}-connectd: Handed peer, entering loop'.format(src.info['id']))
             return
 
         bitcoind = nodes[0].bitcoin
@@ -1392,10 +1431,8 @@ class NodeFactory(object):
         for src, dst in connections:
             txids.append(src.rpc.fundchannel(dst.info['id'], fundamount, announce=announce_channels)['txid'])
 
-        wait_for(lambda: set(txids).issubset(set(bitcoind.rpc.getrawmempool())))
-
         # Confirm all channels and wait for them to become usable
-        bitcoind.generate_block(1)
+        bitcoind.generate_block(1, wait_for_mempool=txids)
         scids = []
         for src, dst in connections:
             wait_for(lambda: src.channel_state(dst) == 'CHANNELD_NORMAL')

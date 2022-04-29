@@ -2,6 +2,7 @@
 #include <ccan/array_size/array_size.h>
 #include <ccan/asort/asort.h>
 #include <ccan/cast/cast.h>
+#include <ccan/json_escape/json_escape.h>
 #include <ccan/str/hex/hex.h>
 #include <ccan/tal/str/str.h>
 #include <common/bolt11_json.h>
@@ -16,6 +17,7 @@
 #include <common/random_select.h>
 #include <common/timeout.h>
 #include <common/type_to_string.h>
+#include <db/exec.h>
 #include <errno.h>
 #include <hsmd/hsmd_wiregen.h>
 #include <lightningd/channel.h>
@@ -39,7 +41,8 @@ static void json_add_invoice(struct json_stream *response,
 			     const struct invoice_details *inv)
 {
 	json_add_escaped_string(response, "label", inv->label);
-	json_add_invstring(response, inv->invstring);
+	if (inv->invstring)
+		json_add_invstring(response, inv->invstring);
 	json_add_sha256(response, "payment_hash", &inv->rhash);
 	if (inv->msat)
 		json_add_amount_msat_compat(response, *inv->msat,
@@ -172,14 +175,12 @@ static void invoice_payment_add_tlvs(struct json_stream *stream,
 				     struct htlc_set *hset)
 {
 	struct htlc_in *hin;
-	struct tlv_tlv_payload *tlvs;
+	const struct tlv_tlv_payload *tlvs;
 	assert(tal_count(hset->htlcs) > 0);
 
 	/* Pick the first HTLC as representative for the entire set. */
 	hin = hset->htlcs[0];
 
-	if (hin->payload->type != ONION_TLV_PAYLOAD)
-		return;
 	tlvs = hin->payload->tlv;
 
 	json_array_start(stream, "extratlvs");
@@ -707,7 +708,7 @@ add_routehints(struct invoice_info *info,
 	struct amount_msat total, needed;
 
 	/* Dev code can force routes. */
-	if (tal_count(info->b11->routes) != 0) {
+	if (info->b11->routes) {
 	       *warning_mpp = *warning_capacity = *warning_deadends
 		       = *warning_offline = *warning_private_unused
 		       = false;
@@ -1034,6 +1035,9 @@ static struct command_result *param_time(struct command *cmd, const char *name,
 		{ 'd', 24*60*60 },
 		{ 'w', 7*24*60*60 } };
 
+	if (!deprecated_apis)
+		return param_u64(cmd, name, buffer, tok, secs);
+
 	mul = 1;
 	if (timetok.end == timetok.start)
 		s = '\0';
@@ -1058,7 +1062,7 @@ static struct command_result *param_time(struct command *cmd, const char *name,
 	}
 
 	return command_fail_badparam(cmd, name, buffer, tok,
-				     "should be a number with optional {s,m,h,d,w} suffix");
+				     "should be a number");
 }
 
 static struct command_result *param_chanhints(struct command *cmd,
@@ -1134,6 +1138,7 @@ static struct command_result *json_invoice(struct command *cmd,
 	u32 *cltv;
 	struct jsonrpc_request *req;
 	struct plugin *plugin;
+	bool *hashonly;
 #if DEVELOPER
 	const jsmntok_t *routes;
 #endif
@@ -1152,6 +1157,7 @@ static struct command_result *json_invoice(struct command *cmd,
 			 &info->chanhints),
 		   p_opt_def("cltv", param_number, &cltv,
 			     cmd->ld->config.cltv_final),
+		   p_opt_def("deschashonly", param_bool, &hashonly, false),
 #if DEVELOPER
 		   p_opt("dev-routes", param_array, &routes),
 #endif
@@ -1164,7 +1170,7 @@ static struct command_result *json_invoice(struct command *cmd,
 				    INVOICE_MAX_LABEL_LEN);
 	}
 
-	if (strlen(desc_val) > BOLT11_FIELD_BYTE_LIMIT) {
+	if (strlen(desc_val) > BOLT11_FIELD_BYTE_LIMIT && !*hashonly) {
 		return command_fail(cmd, JSONRPC2_INVALID_PARAMS,
 				    "Descriptions greater than %d bytes "
 				    "not yet supported "
@@ -1206,7 +1212,18 @@ static struct command_result *json_invoice(struct command *cmd,
 	info->b11->min_final_cltv_expiry = *cltv;
 	info->b11->expiry = *expiry;
 	info->b11->description = tal_steal(info->b11, desc_val);
-	info->b11->description_hash = NULL;
+	/* BOLT #11:
+	 * * `h` (23): `data_length` 52. 256-bit description of purpose of payment (SHA256).
+	 *...
+	 * A writer:
+	 *...
+	 *    - MUST include either exactly one `d` or exactly one `h` field.
+	 */
+	if (*hashonly) {
+		info->b11->description_hash = tal(info->b11, struct sha256);
+		sha256(info->b11->description_hash, desc_val, strlen(desc_val));
+	} else
+		info->b11->description_hash = NULL;
 	info->b11->payment_secret = tal_dup(info->b11, struct secret,
 					    &payment_secret);
 	info->b11->features = tal_dup_talarr(info->b11, u8,
@@ -1368,15 +1385,17 @@ static struct command_result *json_delinvoice(struct command *cmd,
 					      const jsmntok_t *params)
 {
 	struct invoice i;
-	const struct invoice_details *details;
+	struct invoice_details *details;
 	struct json_stream *response;
 	const char *status, *actual_status;
 	struct json_escape *label;
 	struct wallet *wallet = cmd->ld->wallet;
+	bool *deldesc;
 
 	if (!param(cmd, buffer, params,
 		   p_req("label", param_label, &label),
 		   p_req("status", param_string, &status),
+		   p_opt_def("desconly", param_bool, &deldesc, false),
 		   NULL))
 		return command_param_failed();
 
@@ -1401,12 +1420,27 @@ static struct command_result *json_delinvoice(struct command *cmd,
 		return command_failed(cmd, js);
 	}
 
-	if (!wallet_invoice_delete(wallet, i)) {
-		log_broken(cmd->ld->log,
-			   "Error attempting to remove invoice %"PRIu64,
-			   i.id);
-		/* FIXME: allocate a generic DATABASE_ERROR code.  */
-		return command_fail(cmd, LIGHTNINGD, "Database error");
+	if (*deldesc) {
+		if (!details->description)
+			return command_fail(cmd, INVOICE_NO_DESCRIPTION,
+					    "Invoice description already removed");
+
+		if (!wallet_invoice_delete_description(wallet, i)) {
+			log_broken(cmd->ld->log,
+				   "Error attempting to delete description of invoice %"PRIu64,
+				   i.id);
+			/* FIXME: allocate a generic DATABASE_ERROR code.  */
+			return command_fail(cmd, LIGHTNINGD, "Database error");
+		}
+		details->description = tal_free(details->description);
+	} else {
+		if (!wallet_invoice_delete(wallet, i)) {
+			log_broken(cmd->ld->log,
+				   "Error attempting to remove invoice %"PRIu64,
+				   i.id);
+			/* FIXME: allocate a generic DATABASE_ERROR code.  */
+			return command_fail(cmd, LIGHTNINGD, "Database error");
+		}
 	}
 
 	response = json_stream_success(cmd);

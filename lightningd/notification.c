@@ -296,7 +296,8 @@ static void forward_event_notification_serialize(struct json_stream *stream,
 						 const struct amount_msat *amount_out,
 						 enum forward_status state,
 						 enum onion_wire failcode,
-						 struct timeabs *resolved_time)
+						 struct timeabs *resolved_time,
+						 enum forward_style forward_style)
 {
 	/* Here is more neat to initial a forwarding structure than
 	 * to pass in a bunch of parameters directly*/
@@ -324,6 +325,7 @@ static void forward_event_notification_serialize(struct json_stream *stream,
 	cur->failcode = failcode;
 	cur->received_time = in->received_time;
 	cur->resolved_time = tal_steal(cur, resolved_time);
+	cur->forward_style = forward_style;
 
 	json_format_forwarding_object(stream, "forward_event", cur);
 }
@@ -337,7 +339,8 @@ void notify_forward_event(struct lightningd *ld,
 			  const struct amount_msat *amount_out,
 			  enum forward_status state,
 			  enum onion_wire failcode,
-			  struct timeabs *resolved_time)
+			  struct timeabs *resolved_time,
+			  enum forward_style forward_style)
 {
 	void (*serialize)(struct json_stream *,
 			  const struct htlc_in *,
@@ -345,11 +348,12 @@ void notify_forward_event(struct lightningd *ld,
 			  const struct amount_msat *,
 			  enum forward_status,
 			  enum onion_wire,
-			  struct timeabs *) = forward_event_notification_gen.serialize;
+			  struct timeabs *,
+			  enum forward_style) = forward_event_notification_gen.serialize;
 
 	struct jsonrpc_notification *n
 		= jsonrpc_notification_start(NULL, forward_event_notification_gen.topic);
-	serialize(n->stream, in, scid_out, amount_out, state, failcode, resolved_time);
+	serialize(n->stream, in, scid_out, amount_out, state, failcode, resolved_time, forward_style);
 	jsonrpc_notification_end(n);
 	plugins_notify(ld->plugins, take(n));
 }
@@ -480,6 +484,10 @@ static void coin_movement_notification_serialize(struct json_stream *stream,
 	if (mvt->output_val)
 		json_add_amount_sat_only(stream, "output_value",
 					 *mvt->output_val);
+	if (mvt->output_count > 0)
+		json_add_num(stream, "output_count",
+			     mvt->output_count);
+
 	if (mvt->fees)
 		json_add_amount_msat_only(stream, "fees",
 					  *mvt->fees);
@@ -489,14 +497,9 @@ static void coin_movement_notification_serialize(struct json_stream *stream,
 		json_add_string(stream, NULL, mvt_tag_str(mvt->tags[i]));
 	json_array_end(stream);
 
-	/* Only chain movements have blockheights. A blockheight
-	 * of 'zero' means we haven't seen this tx confirmed yet. */
-	if (mvt->type == CHAIN_MVT) {
-		if (mvt->blockheight)
-			json_add_u32(stream, "blockheight", mvt->blockheight);
-		else
-			json_add_null(stream, "blockheight");
-	}
+	if (mvt->type == CHAIN_MVT)
+		json_add_u32(stream, "blockheight", mvt->blockheight);
+
 	json_add_u32(stream, "timestamp", mvt->timestamp);
 	json_add_string(stream, "coin_type", mvt->hrp_name);
 

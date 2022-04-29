@@ -15,7 +15,7 @@ def test_invoice(node_factory, chainparams):
     addr1 = l2.rpc.newaddr('bech32')['bech32']
     addr2 = l2.rpc.newaddr('p2sh-segwit')['p2sh-segwit']
     before = int(time.time())
-    inv = l1.rpc.invoice(123000, 'label', 'description', '3700', [addr1, addr2])
+    inv = l1.rpc.invoice(123000, 'label', 'description', 3700, [addr1, addr2])
     after = int(time.time())
     b11 = l1.rpc.decodepay(inv['bolt11'])
     assert b11['currency'] == chainparams['bip173_prefix']
@@ -55,7 +55,7 @@ def test_invoice(node_factory, chainparams):
     assert 'warning_capacity' in inv
 
     # Test cltv option.
-    inv = l1.rpc.invoice(123000, 'label3', 'description', '3700', cltv=99)
+    inv = l1.rpc.invoice(123000, 'label3', 'description', 3700, cltv=99)
     b11 = l1.rpc.decodepay(inv['bolt11'])
     assert b11['min_final_cltv_expiry'] == 99
 
@@ -437,36 +437,11 @@ def test_invoice_expiry(node_factory, executor):
     # all invoices are expired and should be deleted
     assert len(l2.rpc.listinvoices()['invoices']) == 0
 
-    # Test expiry suffixes.
     start = int(time.time())
-    inv = l2.rpc.invoice(msatoshi=123000, label='inv_s', description='description', expiry='1s')['bolt11']
+    inv = l2.rpc.invoice(msatoshi=123000, label='inv_s', description='description', expiry=1)['bolt11']
     end = int(time.time())
     expiry = only_one(l2.rpc.listinvoices('inv_s')['invoices'])['expires_at']
     assert expiry >= start + 1 and expiry <= end + 1
-
-    start = int(time.time())
-    inv = l2.rpc.invoice(msatoshi=123000, label='inv_m', description='description', expiry='1m')['bolt11']
-    end = int(time.time())
-    expiry = only_one(l2.rpc.listinvoices('inv_m')['invoices'])['expires_at']
-    assert expiry >= start + 60 and expiry <= end + 60
-
-    start = int(time.time())
-    inv = l2.rpc.invoice(msatoshi=123000, label='inv_h', description='description', expiry='1h')['bolt11']
-    end = int(time.time())
-    expiry = only_one(l2.rpc.listinvoices('inv_h')['invoices'])['expires_at']
-    assert expiry >= start + 3600 and expiry <= end + 3600
-
-    start = int(time.time())
-    inv = l2.rpc.invoice(msatoshi=123000, label='inv_d', description='description', expiry='1d')['bolt11']
-    end = int(time.time())
-    expiry = only_one(l2.rpc.listinvoices('inv_d')['invoices'])['expires_at']
-    assert expiry >= start + 24 * 3600 and expiry <= end + 24 * 3600
-
-    start = int(time.time())
-    inv = l2.rpc.invoice(msatoshi=123000, label='inv_w', description='description', expiry='1w')['bolt11']
-    end = int(time.time())
-    expiry = only_one(l2.rpc.listinvoices('inv_w')['invoices'])['expires_at']
-    assert expiry >= start + 7 * 24 * 3600 and expiry <= end + 7 * 24 * 3600
 
 
 @pytest.mark.developer("Too slow without --dev-fast-gossip")
@@ -554,6 +529,7 @@ def test_waitanyinvoice(node_factory, executor):
     r = executor.submit(l2.rpc.waitanyinvoice, pay_index, 0).result(timeout=5)
     assert r['label'] == 'inv4'
 
+    l2.rpc.check_request_schemas = False
     with pytest.raises(RpcError):
         l2.rpc.waitanyinvoice('non-number')
 
@@ -712,3 +688,47 @@ def test_listinvoices_filter(node_factory):
     for q in queries:
         r = l1.rpc.listinvoices(**q)
         assert len(r['invoices']) == 0
+
+
+def test_invoice_deschash(node_factory, chainparams):
+    l1, l2 = node_factory.line_graph(2)
+
+    # BOLT #11:
+    # * `h`: tagged field: hash of description
+    #  * `p5`: `data_length` (`p` = 1, `5` = 20; 1 * 32 + 20 == 52)
+    #  * `8yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqs`: SHA256 of 'One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon'
+    inv = l2.rpc.invoice(42, 'label', 'One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon', deschashonly=True)
+    assert '8yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqs' in inv['bolt11']
+
+    b11 = l2.rpc.decodepay(inv['bolt11'])
+    assert 'description' not in b11
+    assert b11['description_hash'] == '3925b6f67e2c340036ed12093dd44e0368df1b6ea26c53dbe4811f58fd5db8c1'
+
+    listinv = only_one(l2.rpc.listinvoices()['invoices'])
+    assert listinv['description'] == 'One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon'
+
+    # To pay it we need to provide the (correct!) description.
+    with pytest.raises(RpcError, match=r'you did not provide description parameter'):
+        l1.rpc.pay(inv['bolt11'])
+
+    with pytest.raises(RpcError, match=r'does not match description'):
+        l1.rpc.pay(inv['bolt11'], description=listinv['description'][:-1])
+
+    l1.rpc.pay(inv['bolt11'], description=listinv['description'])
+
+    # Description will be in some.
+    found = False
+    for p in l1.rpc.listsendpays()['payments']:
+        if 'description' in p:
+            found = True
+            assert p['description'] == listinv['description']
+    assert found
+
+    assert only_one(l1.rpc.listpays(inv['bolt11'])['pays'])['description'] == listinv['description']
+
+    # Try removing description.
+    l2.rpc.delinvoice('label', "paid", desconly=True)
+    assert 'description' not in only_one(l2.rpc.listinvoices()['invoices'])
+
+    with pytest.raises(RpcError, match=r'description already removed'):
+        l2.rpc.delinvoice('label', "paid", desconly=True)

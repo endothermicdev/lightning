@@ -29,12 +29,15 @@ fail_inv_level(struct command *cmd,
 	struct tlv_invoice_error *err;
 	u8 *errdata;
 
-	full_fmt = tal_fmt(tmpctx, "Failed invoice %s",
-			   invoice_encode(tmpctx, inv->inv));
-	if (inv->inv->offer_id)
-		tal_append_fmt(&full_fmt, " for offer %s",
-			       type_to_string(tmpctx, struct sha256,
-					      inv->inv->offer_id));
+	full_fmt = tal_fmt(tmpctx, "Failed invoice");
+	if (inv->inv) {
+		tal_append_fmt(&full_fmt, " %s",
+			       invoice_encode(tmpctx, inv->inv));
+		if (inv->inv->offer_id)
+			tal_append_fmt(&full_fmt, " for offer %s",
+				       type_to_string(tmpctx, struct sha256,
+						      inv->inv->offer_id));
+	}
 	tal_append_fmt(&full_fmt, ": %s", fmt);
 
 	msg = tal_vfmt(tmpctx, full_fmt, ap);
@@ -54,7 +57,7 @@ fail_inv_level(struct command *cmd,
 	/* FIXME: Add suggested_value / erroneous_field! */
 
 	errdata = tal_arr(cmd, u8, 0);
-	towire_invoice_error(&errdata, err);
+	towire_tlv_invoice_error(&errdata, err);
 	return send_onion_reply(cmd, inv->reply_path, inv->obs2_reply_path,
 				"invoice_error", errdata);
 }
@@ -329,8 +332,8 @@ struct command_result *handle_invoice(struct command *cmd,
 	inv->obs2_reply_path = tal_steal(inv, obs2_reply_path);
 	inv->reply_path = tal_steal(inv, reply_path);
 
-	inv->inv = tlv_invoice_new(cmd);
-	if (!fromwire_invoice(&invbin, &len, inv->inv)) {
+	inv->inv = fromwire_tlv_invoice(cmd, &invbin, &len);
+	if (!inv->inv) {
 		return fail_inv(cmd, inv,
 				"Invalid invoice %s",
 				tal_hex(tmpctx, invbin));
@@ -384,6 +387,7 @@ struct command_result *handle_invoice(struct command *cmd,
 	if (secp256k1_schnorrsig_verify(secp256k1_ctx,
 					inv->inv->signature->u8,
 					shash.u.u8,
+					sizeof(shash.u.u8),
 					&inv->inv->node_id->pubkey) != 1) {
 		return fail_inv(cmd, inv, "Bad signature");
 	}

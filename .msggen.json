@@ -1,0 +1,1065 @@
+{
+    "grpc-enum-map": {
+        "CloseType": {
+            "mutual": 0,
+            "unilateral": 1,
+            "unopened": 2
+        },
+        "ConnectAddressType": {
+            "ipv4": 1,
+            "ipv6": 2,
+            "local socket": 0,
+            "torv2": 3,
+            "torv3": 4
+        },
+        "ConnectDirection": {
+            "in": 0,
+            "out": 1
+        },
+        "CreateinvoiceStatus": {
+            "expired": 1,
+            "paid": 0,
+            "unpaid": 2
+        },
+        "DatastoreMode": {
+            "create-or-append": 4,
+            "create-or-replace": 2,
+            "must-append": 3,
+            "must-create": 0,
+            "must-replace": 1
+        },
+        "DelinvoiceStatus": {
+            "expired": 1,
+            "paid": 0,
+            "unpaid": 2
+        },
+        "FeeratesStyle": {
+            "perkb": 0,
+            "perkw": 1
+        },
+        "GetinfoAddressType": {
+            "dns": 0,
+            "ipv4": 1,
+            "ipv6": 2,
+            "torv2": 3,
+            "torv3": 4,
+            "websocket": 5
+        },
+        "GetinfoBindingType": {
+            "ipv4": 1,
+            "ipv6": 2,
+            "local socket": 0,
+            "torv2": 3,
+            "torv3": 4
+        },
+        "GetrouteRouteStyle": {
+            "tlv": 0
+        },
+        "KeysendStatus": {
+            "complete": 0
+        },
+        "ListforwardsForwardsStatus": {
+            "failed": 3,
+            "local_failed": 2,
+            "offered": 0,
+            "settled": 1
+        },
+        "ListforwardsForwardsStyle": {
+            "legacy": 0,
+            "tlv": 1
+        },
+        "ListforwardsStatus": {
+            "failed": 3,
+            "local_failed": 2,
+            "offered": 0,
+            "settled": 1
+        },
+        "ListfundsOutputsStatus": {
+            "confirmed": 1,
+            "spent": 2,
+            "unconfirmed": 0
+        },
+        "ListinvoicesInvoicesStatus": {
+            "expired": 2,
+            "paid": 1,
+            "unpaid": 0
+        },
+        "ListnodesNodesAddressesType": {
+            "dns": 0,
+            "ipv4": 1,
+            "ipv6": 2,
+            "torv2": 3,
+            "torv3": 4,
+            "websocket": 5
+        },
+        "ListpaysPaysStatus": {
+            "complete": 2,
+            "failed": 1,
+            "pending": 0
+        },
+        "ListpaysStatus": {
+            "complete": 1,
+            "failed": 2,
+            "pending": 0
+        },
+        "ListpeersPeersChannelsHtlcsDirection": {
+            "in": 0,
+            "out": 1
+        },
+        "ListpeersPeersChannelsHtlcsState": {
+            "RCVD_ADD_ACK_COMMIT": 3,
+            "RCVD_ADD_REVOCATION": 2,
+            "RCVD_REMOVE_ACK_REVOCATION": 9,
+            "RCVD_REMOVE_COMMIT": 6,
+            "RCVD_REMOVE_HTLC": 5,
+            "SENT_ADD_ACK_REVOCATION": 4,
+            "SENT_ADD_COMMIT": 1,
+            "SENT_ADD_HTLC": 0,
+            "SENT_REMOVE_ACK_COMMIT": 8,
+            "SENT_REMOVE_REVOCATION": 7
+        },
+        "ListpeersPeersChannelsState": {
+            "AWAITING_UNILATERAL": 6,
+            "CHANNELD_AWAITING_LOCKIN": 1,
+            "CHANNELD_NORMAL": 2,
+            "CHANNELD_SHUTTING_DOWN": 3,
+            "CLOSINGD_COMPLETE": 5,
+            "CLOSINGD_SIGEXCHANGE": 4,
+            "DUALOPEND_AWAITING_LOCKIN": 10,
+            "DUALOPEND_OPEN_INIT": 9,
+            "FUNDING_SPEND_SEEN": 7,
+            "ONCHAIN": 8,
+            "OPENINGD": 0
+        },
+        "ListpeersPeersLogType": {
+            "BROKEN": 1,
+            "DEBUG": 4,
+            "INFO": 3,
+            "IO_IN": 5,
+            "IO_OUT": 6,
+            "SKIPPED": 0,
+            "UNUSUAL": 2
+        },
+        "ListsendpaysPaymentsStatus": {
+            "complete": 2,
+            "failed": 1,
+            "pending": 0
+        },
+        "ListsendpaysStatus": {
+            "complete": 1,
+            "failed": 2,
+            "pending": 0
+        },
+        "ListtransactionsTransactionsInputsType": {
+            "channel_funding": 3,
+            "channel_htlc_success": 7,
+            "channel_htlc_timeout": 8,
+            "channel_mutual_close": 4,
+            "channel_penalty": 9,
+            "channel_sweep": 6,
+            "channel_unilateral_cheat": 10,
+            "channel_unilateral_close": 5,
+            "deposit": 1,
+            "theirs": 0,
+            "withdraw": 2
+        },
+        "ListtransactionsTransactionsOutputsType": {
+            "channel_funding": 3,
+            "channel_htlc_success": 7,
+            "channel_htlc_timeout": 8,
+            "channel_mutual_close": 4,
+            "channel_penalty": 9,
+            "channel_sweep": 6,
+            "channel_unilateral_cheat": 10,
+            "channel_unilateral_close": 5,
+            "deposit": 1,
+            "theirs": 0,
+            "withdraw": 2
+        },
+        "NewaddrAddresstype": {
+            "all": 2,
+            "bech32": 0,
+            "p2sh-segwit": 1
+        },
+        "PayStatus": {
+            "complete": 0,
+            "failed": 2,
+            "pending": 1
+        },
+        "SendonionStatus": {
+            "complete": 1,
+            "pending": 0
+        },
+        "SendpayStatus": {
+            "complete": 1,
+            "pending": 0
+        },
+        "WaitanyinvoiceStatus": {
+            "expired": 1,
+            "paid": 0
+        },
+        "WaitinvoiceStatus": {
+            "expired": 1,
+            "paid": 0
+        },
+        "WaitsendpayStatus": {
+            "complete": 0
+        }
+    },
+    "grpc-field-map": {
+        "AddgossipRequest": {
+            "AddGossip.message": 1
+        },
+        "AutocleaninvoiceRequest": {
+            "AutoCleanInvoice.cycle_seconds": 2,
+            "AutoCleanInvoice.expired_by": 1
+        },
+        "AutocleaninvoiceResponse": {
+            "AutoCleanInvoice.cycle_seconds": 3,
+            "AutoCleanInvoice.enabled": 1,
+            "AutoCleanInvoice.expired_by": 2
+        },
+        "CheckmessageRequest": {
+            "CheckMessage.message": 1,
+            "CheckMessage.pubkey": 3,
+            "CheckMessage.zbase": 2
+        },
+        "CheckmessageResponse": {
+            "CheckMessage.pubkey": 2,
+            "CheckMessage.verified": 1
+        },
+        "CloseRequest": {
+            "Close.destination": 3,
+            "Close.fee_negotiation_step": 4,
+            "Close.feerange[]": 7,
+            "Close.force_lease_closed": 6,
+            "Close.id": 1,
+            "Close.unilateraltimeout": 2,
+            "Close.wrong_funding": 5
+        },
+        "CloseResponse": {
+            "Close.tx": 2,
+            "Close.txid": 3,
+            "Close.type": 1
+        },
+        "ConnectAddress": {
+            "Connect.address.address": 3,
+            "Connect.address.port": 4,
+            "Connect.address.socket": 2,
+            "Connect.address.type": 1
+        },
+        "ConnectRequest": {
+            "Connect.host": 2,
+            "Connect.id": 1,
+            "Connect.port": 3
+        },
+        "ConnectResponse": {
+            "Connect.address": 4,
+            "Connect.direction": 3,
+            "Connect.features": 2,
+            "Connect.id": 1
+        },
+        "CreateinvoiceRequest": {
+            "CreateInvoice.invstring": 1,
+            "CreateInvoice.label": 2,
+            "CreateInvoice.preimage": 3
+        },
+        "CreateinvoiceResponse": {
+            "CreateInvoice.amount_msat": 5,
+            "CreateInvoice.amount_received_msat": 10,
+            "CreateInvoice.bolt11": 2,
+            "CreateInvoice.bolt12": 3,
+            "CreateInvoice.description": 7,
+            "CreateInvoice.expires_at": 8,
+            "CreateInvoice.label": 1,
+            "CreateInvoice.local_offer_id": 13,
+            "CreateInvoice.paid_at": 11,
+            "CreateInvoice.pay_index": 9,
+            "CreateInvoice.payer_note": 14,
+            "CreateInvoice.payment_hash": 4,
+            "CreateInvoice.payment_preimage": 12,
+            "CreateInvoice.status": 6
+        },
+        "CreateonionHops": {
+            "CreateOnion.hops[].payload": 2,
+            "CreateOnion.hops[].pubkey": 1
+        },
+        "CreateonionRequest": {
+            "CreateOnion.assocdata": 2,
+            "CreateOnion.hops[]": 1,
+            "CreateOnion.onion_size": 4,
+            "CreateOnion.session_key": 3
+        },
+        "CreateonionResponse": {
+            "CreateOnion.onion": 1,
+            "CreateOnion.shared_secrets[]": 2
+        },
+        "DatastoreRequest": {
+            "Datastore.generation": 4,
+            "Datastore.hex": 2,
+            "Datastore.key": 5,
+            "Datastore.key[]": 1,
+            "Datastore.mode": 3,
+            "Datastore.string": 6
+        },
+        "DatastoreResponse": {
+            "Datastore.generation": 2,
+            "Datastore.hex": 3,
+            "Datastore.key": 5,
+            "Datastore.key[]": 1,
+            "Datastore.string": 4
+        },
+        "DeldatastoreRequest": {
+            "DelDatastore.generation": 2,
+            "DelDatastore.key": 3,
+            "DelDatastore.key[]": 1
+        },
+        "DeldatastoreResponse": {
+            "DelDatastore.generation": 2,
+            "DelDatastore.hex": 3,
+            "DelDatastore.key": 5,
+            "DelDatastore.key[]": 1,
+            "DelDatastore.string": 4
+        },
+        "DelexpiredinvoiceRequest": {
+            "DelExpiredInvoice.maxexpirytime": 1
+        },
+        "DelinvoiceRequest": {
+            "DelInvoice.desconly": 3,
+            "DelInvoice.label": 1,
+            "DelInvoice.status": 2
+        },
+        "DelinvoiceResponse": {
+            "DelInvoice.amount_msat": 4,
+            "DelInvoice.bolt11": 2,
+            "DelInvoice.bolt12": 3,
+            "DelInvoice.description": 5,
+            "DelInvoice.expires_at": 8,
+            "DelInvoice.label": 1,
+            "DelInvoice.local_offer_id": 9,
+            "DelInvoice.payer_note": 10,
+            "DelInvoice.payment_hash": 6,
+            "DelInvoice.status": 7
+        },
+        "DisconnectRequest": {
+            "Disconnect.force": 2,
+            "Disconnect.id": 1
+        },
+        "FeeratesOnchain_fee_estimates": {
+            "Feerates.onchain_fee_estimates.htlc_success_satoshis": 5,
+            "Feerates.onchain_fee_estimates.htlc_timeout_satoshis": 4,
+            "Feerates.onchain_fee_estimates.mutual_close_satoshis": 2,
+            "Feerates.onchain_fee_estimates.opening_channel_satoshis": 1,
+            "Feerates.onchain_fee_estimates.unilateral_close_satoshis": 3
+        },
+        "FeeratesPerkb": {
+            "Feerates.perkb.delayed_to_us": 6,
+            "Feerates.perkb.htlc_resolution": 7,
+            "Feerates.perkb.max_acceptable": 2,
+            "Feerates.perkb.min_acceptable": 1,
+            "Feerates.perkb.mutual_close": 4,
+            "Feerates.perkb.opening": 3,
+            "Feerates.perkb.penalty": 8,
+            "Feerates.perkb.unilateral_close": 5
+        },
+        "FeeratesPerkw": {
+            "Feerates.perkw.delayed_to_us": 6,
+            "Feerates.perkw.htlc_resolution": 7,
+            "Feerates.perkw.max_acceptable": 2,
+            "Feerates.perkw.min_acceptable": 1,
+            "Feerates.perkw.mutual_close": 4,
+            "Feerates.perkw.opening": 3,
+            "Feerates.perkw.penalty": 8,
+            "Feerates.perkw.unilateral_close": 5
+        },
+        "FeeratesRequest": {
+            "Feerates.style": 1
+        },
+        "FeeratesResponse": {
+            "Feerates.onchain_fee_estimates": 4,
+            "Feerates.perkb": 2,
+            "Feerates.perkw": 3,
+            "Feerates.warning_missing_feerates": 1
+        },
+        "FundpsbtRequest": {
+            "FundPsbt.excess_as_change": 8,
+            "FundPsbt.feerate": 2,
+            "FundPsbt.locktime": 6,
+            "FundPsbt.min_witness_weight": 7,
+            "FundPsbt.minconf": 4,
+            "FundPsbt.reserve": 5,
+            "FundPsbt.satoshi": 1,
+            "FundPsbt.startweight": 3
+        },
+        "FundpsbtReservations": {
+            "FundPsbt.reservations[].reserved": 4,
+            "FundPsbt.reservations[].reserved_to_block": 5,
+            "FundPsbt.reservations[].txid": 1,
+            "FundPsbt.reservations[].vout": 2,
+            "FundPsbt.reservations[].was_reserved": 3
+        },
+        "FundpsbtResponse": {
+            "FundPsbt.change_outnum": 5,
+            "FundPsbt.estimated_final_weight": 3,
+            "FundPsbt.excess_msat": 4,
+            "FundPsbt.feerate_per_kw": 2,
+            "FundPsbt.psbt": 1,
+            "FundPsbt.reservations[]": 6
+        },
+        "GetinfoAddress": {
+            "Getinfo.address[].address": 3,
+            "Getinfo.address[].port": 2,
+            "Getinfo.address[].type": 1
+        },
+        "GetinfoBinding": {
+            "Getinfo.binding[].address": 2,
+            "Getinfo.binding[].port": 3,
+            "Getinfo.binding[].socket": 4,
+            "Getinfo.binding[].type": 1
+        },
+        "GetinfoOur_features": {
+            "Getinfo.our_features.channel": 3,
+            "Getinfo.our_features.init": 1,
+            "Getinfo.our_features.invoice": 4,
+            "Getinfo.our_features.node": 2
+        },
+        "GetinfoResponse": {
+            "Getinfo.address[]": 14,
+            "Getinfo.alias": 2,
+            "Getinfo.binding[]": 15,
+            "Getinfo.blockheight": 11,
+            "Getinfo.color": 3,
+            "Getinfo.fees_collected_msat": 13,
+            "Getinfo.id": 1,
+            "Getinfo.lightning-dir": 9,
+            "Getinfo.network": 12,
+            "Getinfo.num_active_channels": 6,
+            "Getinfo.num_inactive_channels": 7,
+            "Getinfo.num_peers": 4,
+            "Getinfo.num_pending_channels": 5,
+            "Getinfo.our_features": 10,
+            "Getinfo.version": 8,
+            "Getinfo.warning_bitcoind_sync": 16,
+            "Getinfo.warning_lightningd_sync": 17
+        },
+        "GetrouteRequest": {
+            "GetRoute.cltv": 4,
+            "GetRoute.exclude[]": 7,
+            "GetRoute.fromid": 5,
+            "GetRoute.fuzzpercent": 6,
+            "GetRoute.id": 1,
+            "GetRoute.maxhops": 8,
+            "GetRoute.msatoshi": 2,
+            "GetRoute.riskfactor": 3
+        },
+        "GetrouteResponse": {
+            "GetRoute.route[]": 1
+        },
+        "GetrouteRoute": {
+            "GetRoute.route[].amount_msat": 4,
+            "GetRoute.route[].channel": 2,
+            "GetRoute.route[].delay": 5,
+            "GetRoute.route[].direction": 3,
+            "GetRoute.route[].id": 1,
+            "GetRoute.route[].style": 6
+        },
+        "InvoiceRequest": {
+            "Invoice.cltv": 6,
+            "Invoice.deschashonly": 9,
+            "Invoice.description": 2,
+            "Invoice.expiry": 7,
+            "Invoice.exposeprivatechannels": 8,
+            "Invoice.fallbacks[]": 4,
+            "Invoice.label": 3,
+            "Invoice.msatoshi": 1,
+            "Invoice.preimage": 5
+        },
+        "InvoiceResponse": {
+            "Invoice.bolt11": 1,
+            "Invoice.expires_at": 4,
+            "Invoice.payment_hash": 2,
+            "Invoice.payment_secret": 3,
+            "Invoice.warning_capacity": 5,
+            "Invoice.warning_deadends": 7,
+            "Invoice.warning_mpp": 9,
+            "Invoice.warning_offline": 6,
+            "Invoice.warning_private_unused": 8
+        },
+        "KeysendRequest": {
+            "KeySend.destination": 1,
+            "KeySend.exemptfee": 7,
+            "KeySend.extratlvs": 9,
+            "KeySend.label": 3,
+            "KeySend.maxdelay": 6,
+            "KeySend.maxfeepercent": 4,
+            "KeySend.msatoshi": 2,
+            "KeySend.retry_for": 5,
+            "KeySend.routehints": 8
+        },
+        "KeysendResponse": {
+            "KeySend.amount_msat": 6,
+            "KeySend.amount_sent_msat": 7,
+            "KeySend.created_at": 4,
+            "KeySend.destination": 2,
+            "KeySend.parts": 5,
+            "KeySend.payment_hash": 3,
+            "KeySend.payment_preimage": 1,
+            "KeySend.status": 9,
+            "KeySend.warning_partial_completion": 8
+        },
+        "ListchannelsChannels": {
+            "ListChannels.channels[].active": 8,
+            "ListChannels.channels[].amount_msat": 5,
+            "ListChannels.channels[].base_fee_millisatoshi": 10,
+            "ListChannels.channels[].channel_flags": 7,
+            "ListChannels.channels[].delay": 12,
+            "ListChannels.channels[].destination": 2,
+            "ListChannels.channels[].features": 15,
+            "ListChannels.channels[].fee_per_millionth": 11,
+            "ListChannels.channels[].htlc_maximum_msat": 14,
+            "ListChannels.channels[].htlc_minimum_msat": 13,
+            "ListChannels.channels[].last_update": 9,
+            "ListChannels.channels[].message_flags": 6,
+            "ListChannels.channels[].public": 4,
+            "ListChannels.channels[].short_channel_id": 3,
+            "ListChannels.channels[].source": 1
+        },
+        "ListchannelsRequest": {
+            "ListChannels.destination": 3,
+            "ListChannels.short_channel_id": 1,
+            "ListChannels.source": 2
+        },
+        "ListchannelsResponse": {
+            "ListChannels.channels[]": 1
+        },
+        "ListdatastoreDatastore": {
+            "ListDatastore.datastore[].generation": 2,
+            "ListDatastore.datastore[].hex": 3,
+            "ListDatastore.datastore[].key[]": 1,
+            "ListDatastore.datastore[].string": 4
+        },
+        "ListdatastoreRequest": {
+            "ListDatastore.key": 2,
+            "ListDatastore.key[]": 1
+        },
+        "ListdatastoreResponse": {
+            "ListDatastore.datastore[]": 1
+        },
+        "ListforwardsForwards": {
+            "ListForwards.forwards[].fee_msat": 7,
+            "ListForwards.forwards[].in_channel": 1,
+            "ListForwards.forwards[].in_msat": 2,
+            "ListForwards.forwards[].out_channel": 5,
+            "ListForwards.forwards[].out_msat": 8,
+            "ListForwards.forwards[].payment_hash": 6,
+            "ListForwards.forwards[].received_time": 4,
+            "ListForwards.forwards[].status": 3,
+            "ListForwards.forwards[].style": 9
+        },
+        "ListforwardsRequest": {
+            "ListForwards.in_channel": 2,
+            "ListForwards.out_channel": 3,
+            "ListForwards.status": 1
+        },
+        "ListforwardsResponse": {
+            "ListForwards.forwards[]": 1
+        },
+        "ListfundsChannels": {
+            "ListFunds.channels[].amount_msat": 3,
+            "ListFunds.channels[].connected": 6,
+            "ListFunds.channels[].funding_output": 5,
+            "ListFunds.channels[].funding_txid": 4,
+            "ListFunds.channels[].our_amount_msat": 2,
+            "ListFunds.channels[].peer_id": 1,
+            "ListFunds.channels[].short_channel_id": 8,
+            "ListFunds.channels[].state": 7
+        },
+        "ListfundsOutputs": {
+            "ListFunds.outputs[].address": 5,
+            "ListFunds.outputs[].amount_msat": 3,
+            "ListFunds.outputs[].blockheight": 8,
+            "ListFunds.outputs[].output": 2,
+            "ListFunds.outputs[].redeemscript": 6,
+            "ListFunds.outputs[].scriptpubkey": 4,
+            "ListFunds.outputs[].status": 7,
+            "ListFunds.outputs[].txid": 1
+        },
+        "ListfundsRequest": {
+            "ListFunds.spent": 1
+        },
+        "ListfundsResponse": {
+            "ListFunds.channels[]": 2,
+            "ListFunds.outputs[]": 1
+        },
+        "ListinvoicesInvoices": {
+            "ListInvoices.invoices[].amount_msat": 6,
+            "ListInvoices.invoices[].amount_received_msat": 12,
+            "ListInvoices.invoices[].bolt11": 7,
+            "ListInvoices.invoices[].bolt12": 8,
+            "ListInvoices.invoices[].description": 2,
+            "ListInvoices.invoices[].expires_at": 5,
+            "ListInvoices.invoices[].label": 1,
+            "ListInvoices.invoices[].local_offer_id": 9,
+            "ListInvoices.invoices[].paid_at": 13,
+            "ListInvoices.invoices[].pay_index": 11,
+            "ListInvoices.invoices[].payer_note": 10,
+            "ListInvoices.invoices[].payment_hash": 3,
+            "ListInvoices.invoices[].payment_preimage": 14,
+            "ListInvoices.invoices[].status": 4
+        },
+        "ListinvoicesRequest": {
+            "ListInvoices.invstring": 2,
+            "ListInvoices.label": 1,
+            "ListInvoices.offer_id": 4,
+            "ListInvoices.payment_hash": 3
+        },
+        "ListinvoicesResponse": {
+            "ListInvoices.invoices[]": 1
+        },
+        "ListnodesNodes": {
+            "ListNodes.nodes[].addresses[]": 6,
+            "ListNodes.nodes[].alias": 3,
+            "ListNodes.nodes[].color": 4,
+            "ListNodes.nodes[].features": 5,
+            "ListNodes.nodes[].last_timestamp": 2,
+            "ListNodes.nodes[].nodeid": 1
+        },
+        "ListnodesNodesAddresses": {
+            "ListNodes.nodes[].addresses[].address": 3,
+            "ListNodes.nodes[].addresses[].port": 2,
+            "ListNodes.nodes[].addresses[].type": 1
+        },
+        "ListnodesRequest": {
+            "ListNodes.id": 1
+        },
+        "ListnodesResponse": {
+            "ListNodes.nodes[]": 1
+        },
+        "ListpaysPays": {
+            "ListPays.pays[].amount_msat": 8,
+            "ListPays.pays[].amount_sent_msat": 9,
+            "ListPays.pays[].bolt11": 6,
+            "ListPays.pays[].bolt12": 7,
+            "ListPays.pays[].created_at": 4,
+            "ListPays.pays[].description": 11,
+            "ListPays.pays[].destination": 3,
+            "ListPays.pays[].erroronion": 10,
+            "ListPays.pays[].label": 5,
+            "ListPays.pays[].payment_hash": 1,
+            "ListPays.pays[].status": 2
+        },
+        "ListpaysRequest": {
+            "ListPays.bolt11": 1,
+            "ListPays.payment_hash": 2,
+            "ListPays.status": 3
+        },
+        "ListpaysResponse": {
+            "ListPays.pays[]": 1
+        },
+        "ListpeersPeers": {
+            "ListPeers.peers[].channels[]": 4,
+            "ListPeers.peers[].connected": 2,
+            "ListPeers.peers[].features": 6,
+            "ListPeers.peers[].id": 1,
+            "ListPeers.peers[].log[]": 3,
+            "ListPeers.peers[].netaddr[]": 5
+        },
+        "ListpeersPeersChannels": {
+            "ListPeers.peers[].channels[].channel_id": 6,
+            "ListPeers.peers[].channels[].close_to": 14,
+            "ListPeers.peers[].channels[].close_to_addr": 47,
+            "ListPeers.peers[].channels[].closer": 17,
+            "ListPeers.peers[].channels[].dust_limit_msat": 26,
+            "ListPeers.peers[].channels[].features[]": 18,
+            "ListPeers.peers[].channels[].fee_base_msat": 24,
+            "ListPeers.peers[].channels[].fee_proportional_millionths": 25,
+            "ListPeers.peers[].channels[].feerate": 3,
+            "ListPeers.peers[].channels[].funding": 19,
+            "ListPeers.peers[].channels[].funding_outnum": 8,
+            "ListPeers.peers[].channels[].funding_txid": 7,
+            "ListPeers.peers[].channels[].htlcs[]": 46,
+            "ListPeers.peers[].channels[].in_fulfilled_msat": 41,
+            "ListPeers.peers[].channels[].in_offered_msat": 39,
+            "ListPeers.peers[].channels[].in_payments_fulfilled": 40,
+            "ListPeers.peers[].channels[].in_payments_offered": 38,
+            "ListPeers.peers[].channels[].inflight[]": 13,
+            "ListPeers.peers[].channels[].initial_feerate": 9,
+            "ListPeers.peers[].channels[].last_feerate": 10,
+            "ListPeers.peers[].channels[].max_accepted_htlcs": 35,
+            "ListPeers.peers[].channels[].max_to_us_msat": 22,
+            "ListPeers.peers[].channels[].max_total_htlc_in_msat": 27,
+            "ListPeers.peers[].channels[].maximum_htlc_out_msat": 49,
+            "ListPeers.peers[].channels[].min_to_us_msat": 21,
+            "ListPeers.peers[].channels[].minimum_htlc_in_msat": 32,
+            "ListPeers.peers[].channels[].minimum_htlc_out_msat": 48,
+            "ListPeers.peers[].channels[].next_fee_step": 12,
+            "ListPeers.peers[].channels[].next_feerate": 11,
+            "ListPeers.peers[].channels[].opener": 16,
+            "ListPeers.peers[].channels[].our_reserve_msat": 29,
+            "ListPeers.peers[].channels[].our_to_self_delay": 34,
+            "ListPeers.peers[].channels[].out_fulfilled_msat": 45,
+            "ListPeers.peers[].channels[].out_offered_msat": 43,
+            "ListPeers.peers[].channels[].out_payments_fulfilled": 44,
+            "ListPeers.peers[].channels[].out_payments_offered": 42,
+            "ListPeers.peers[].channels[].owner": 4,
+            "ListPeers.peers[].channels[].private": 15,
+            "ListPeers.peers[].channels[].receivable_msat": 31,
+            "ListPeers.peers[].channels[].scratch_txid": 2,
+            "ListPeers.peers[].channels[].short_channel_id": 5,
+            "ListPeers.peers[].channels[].spendable_msat": 30,
+            "ListPeers.peers[].channels[].state": 1,
+            "ListPeers.peers[].channels[].state_changes[]": 36,
+            "ListPeers.peers[].channels[].status[]": 37,
+            "ListPeers.peers[].channels[].their_reserve_msat": 28,
+            "ListPeers.peers[].channels[].their_to_self_delay": 33,
+            "ListPeers.peers[].channels[].to_us_msat": 20,
+            "ListPeers.peers[].channels[].total_msat": 23
+        },
+        "ListpeersPeersChannelsFeerate": {
+            "ListPeers.peers[].channels[].feerate.perkb": 2,
+            "ListPeers.peers[].channels[].feerate.perkw": 1
+        },
+        "ListpeersPeersChannelsFunding": {
+            "ListPeers.peers[].channels[].funding.local_msat": 1,
+            "ListPeers.peers[].channels[].funding.pushed_msat": 3,
+            "ListPeers.peers[].channels[].funding.remote_msat": 2
+        },
+        "ListpeersPeersChannelsHtlcs": {
+            "ListPeers.peers[].channels[].htlcs[].amount_msat": 3,
+            "ListPeers.peers[].channels[].htlcs[].direction": 1,
+            "ListPeers.peers[].channels[].htlcs[].expiry": 4,
+            "ListPeers.peers[].channels[].htlcs[].id": 2,
+            "ListPeers.peers[].channels[].htlcs[].local_trimmed": 6,
+            "ListPeers.peers[].channels[].htlcs[].payment_hash": 5,
+            "ListPeers.peers[].channels[].htlcs[].state": 8,
+            "ListPeers.peers[].channels[].htlcs[].status": 7
+        },
+        "ListpeersPeersChannelsInflight": {
+            "ListPeers.peers[].channels[].inflight[].feerate": 3,
+            "ListPeers.peers[].channels[].inflight[].funding_outnum": 2,
+            "ListPeers.peers[].channels[].inflight[].funding_txid": 1,
+            "ListPeers.peers[].channels[].inflight[].our_funding_msat": 5,
+            "ListPeers.peers[].channels[].inflight[].scratch_txid": 6,
+            "ListPeers.peers[].channels[].inflight[].total_funding_msat": 4
+        },
+        "ListpeersPeersLog": {
+            "ListPeers.peers[].log[].data": 7,
+            "ListPeers.peers[].log[].log": 5,
+            "ListPeers.peers[].log[].node_id": 6,
+            "ListPeers.peers[].log[].num_skipped": 2,
+            "ListPeers.peers[].log[].source": 4,
+            "ListPeers.peers[].log[].time": 3,
+            "ListPeers.peers[].log[].type": 1
+        },
+        "ListpeersRequest": {
+            "ListPeers.id": 1,
+            "ListPeers.level": 2
+        },
+        "ListpeersResponse": {
+            "ListPeers.peers[]": 1
+        },
+        "ListsendpaysPayments": {
+            "ListSendPays.payments[].amount_msat": 5,
+            "ListSendPays.payments[].amount_sent_msat": 8,
+            "ListSendPays.payments[].bolt11": 10,
+            "ListSendPays.payments[].bolt12": 11,
+            "ListSendPays.payments[].created_at": 7,
+            "ListSendPays.payments[].description": 14,
+            "ListSendPays.payments[].destination": 6,
+            "ListSendPays.payments[].erroronion": 13,
+            "ListSendPays.payments[].groupid": 2,
+            "ListSendPays.payments[].id": 1,
+            "ListSendPays.payments[].label": 9,
+            "ListSendPays.payments[].payment_hash": 3,
+            "ListSendPays.payments[].payment_preimage": 12,
+            "ListSendPays.payments[].status": 4
+        },
+        "ListsendpaysRequest": {
+            "ListSendPays.bolt11": 1,
+            "ListSendPays.payment_hash": 2,
+            "ListSendPays.status": 3
+        },
+        "ListsendpaysResponse": {
+            "ListSendPays.payments[]": 1
+        },
+        "ListtransactionsResponse": {
+            "ListTransactions.transactions[]": 1
+        },
+        "ListtransactionsTransactions": {
+            "ListTransactions.transactions[].blockheight": 3,
+            "ListTransactions.transactions[].channel": 6,
+            "ListTransactions.transactions[].hash": 1,
+            "ListTransactions.transactions[].inputs[]": 9,
+            "ListTransactions.transactions[].locktime": 7,
+            "ListTransactions.transactions[].outputs[]": 10,
+            "ListTransactions.transactions[].rawtx": 2,
+            "ListTransactions.transactions[].txindex": 4,
+            "ListTransactions.transactions[].type[]": 5,
+            "ListTransactions.transactions[].version": 8
+        },
+        "ListtransactionsTransactionsInputs": {
+            "ListTransactions.transactions[].inputs[].channel": 5,
+            "ListTransactions.transactions[].inputs[].index": 2,
+            "ListTransactions.transactions[].inputs[].sequence": 3,
+            "ListTransactions.transactions[].inputs[].txid": 1,
+            "ListTransactions.transactions[].inputs[].type": 4
+        },
+        "ListtransactionsTransactionsOutputs": {
+            "ListTransactions.transactions[].outputs[].channel": 5,
+            "ListTransactions.transactions[].outputs[].index": 1,
+            "ListTransactions.transactions[].outputs[].msat": 2,
+            "ListTransactions.transactions[].outputs[].scriptPubKey": 3,
+            "ListTransactions.transactions[].outputs[].type": 4
+        },
+        "NewaddrRequest": {
+            "NewAddr.addresstype": 1
+        },
+        "NewaddrResponse": {
+            "NewAddr.bech32": 1,
+            "NewAddr.p2sh-segwit": 2
+        },
+        "PayRequest": {
+            "Pay.bolt11": 1,
+            "Pay.description": 12,
+            "Pay.exclude": 10,
+            "Pay.exemptfee": 7,
+            "Pay.label": 3,
+            "Pay.localofferid": 9,
+            "Pay.maxdelay": 6,
+            "Pay.maxfee": 11,
+            "Pay.maxfeepercent": 4,
+            "Pay.msatoshi": 2,
+            "Pay.retry_for": 5,
+            "Pay.riskfactor": 8
+        },
+        "PayResponse": {
+            "Pay.amount_msat": 6,
+            "Pay.amount_sent_msat": 7,
+            "Pay.created_at": 4,
+            "Pay.destination": 2,
+            "Pay.parts": 5,
+            "Pay.payment_hash": 3,
+            "Pay.payment_preimage": 1,
+            "Pay.status": 9,
+            "Pay.warning_partial_completion": 8
+        },
+        "PingRequest": {
+            "Ping.id": 1,
+            "Ping.len": 2,
+            "Ping.pongbytes": 3
+        },
+        "PingResponse": {
+            "Ping.totlen": 1
+        },
+        "SendonionFirst_hop": {
+            "SendOnion.first_hop.amount_msat": 2,
+            "SendOnion.first_hop.delay": 3,
+            "SendOnion.first_hop.id": 1
+        },
+        "SendonionRequest": {
+            "SendOnion.bolt11": 7,
+            "SendOnion.destination": 9,
+            "SendOnion.first_hop": 2,
+            "SendOnion.groupid": 11,
+            "SendOnion.label": 4,
+            "SendOnion.localofferid": 10,
+            "SendOnion.msatoshi": 8,
+            "SendOnion.onion": 1,
+            "SendOnion.partid": 6,
+            "SendOnion.payment_hash": 3,
+            "SendOnion.shared_secrets[]": 5
+        },
+        "SendonionResponse": {
+            "SendOnion.amount_msat": 4,
+            "SendOnion.amount_sent_msat": 7,
+            "SendOnion.bolt11": 9,
+            "SendOnion.bolt12": 10,
+            "SendOnion.created_at": 6,
+            "SendOnion.destination": 5,
+            "SendOnion.id": 1,
+            "SendOnion.label": 8,
+            "SendOnion.message": 12,
+            "SendOnion.partid": 13,
+            "SendOnion.payment_hash": 2,
+            "SendOnion.payment_preimage": 11,
+            "SendOnion.status": 3
+        },
+        "SendpayRequest": {
+            "SendPay.bolt11": 5,
+            "SendPay.groupid": 9,
+            "SendPay.label": 3,
+            "SendPay.localofferid": 8,
+            "SendPay.msatoshi": 4,
+            "SendPay.partid": 7,
+            "SendPay.payment_hash": 2,
+            "SendPay.payment_secret": 6,
+            "SendPay.route[]": 1
+        },
+        "SendpayResponse": {
+            "SendPay.amount_msat": 5,
+            "SendPay.amount_sent_msat": 8,
+            "SendPay.bolt11": 11,
+            "SendPay.bolt12": 12,
+            "SendPay.created_at": 7,
+            "SendPay.destination": 6,
+            "SendPay.groupid": 2,
+            "SendPay.id": 1,
+            "SendPay.label": 9,
+            "SendPay.message": 14,
+            "SendPay.partid": 10,
+            "SendPay.payment_hash": 3,
+            "SendPay.payment_preimage": 13,
+            "SendPay.status": 4
+        },
+        "SendpayRoute": {
+            "SendPay.route[].channel": 4,
+            "SendPay.route[].delay": 3,
+            "SendPay.route[].id": 2,
+            "SendPay.route[].msatoshi": 1
+        },
+        "SendpsbtRequest": {
+            "SendPsbt.psbt": 1,
+            "SendPsbt.reserve": 2
+        },
+        "SendpsbtResponse": {
+            "SendPsbt.tx": 1,
+            "SendPsbt.txid": 2
+        },
+        "SignmessageRequest": {
+            "SignMessage.message": 1
+        },
+        "SignmessageResponse": {
+            "SignMessage.recid": 2,
+            "SignMessage.signature": 1,
+            "SignMessage.zbase": 3
+        },
+        "SignpsbtRequest": {
+            "SignPsbt.psbt": 1,
+            "SignPsbt.signonly[]": 2
+        },
+        "SignpsbtResponse": {
+            "SignPsbt.signed_psbt": 1
+        },
+        "TxdiscardRequest": {
+            "TxDiscard.txid": 1
+        },
+        "TxdiscardResponse": {
+            "TxDiscard.txid": 2,
+            "TxDiscard.unsigned_tx": 1
+        },
+        "TxprepareRequest": {
+            "TxPrepare.feerate": 2,
+            "TxPrepare.minconf": 3,
+            "TxPrepare.outptus[]": 1,
+            "TxPrepare.outputs[]": 5,
+            "TxPrepare.utxos[]": 4
+        },
+        "TxprepareResponse": {
+            "TxPrepare.psbt": 1,
+            "TxPrepare.txid": 3,
+            "TxPrepare.unsigned_tx": 2
+        },
+        "TxsendRequest": {
+            "TxSend.txid": 1
+        },
+        "TxsendResponse": {
+            "TxSend.psbt": 1,
+            "TxSend.tx": 2,
+            "TxSend.txid": 3
+        },
+        "UtxopsbtRequest": {
+            "UtxoPsbt.excess_as_change": 9,
+            "UtxoPsbt.feerate": 2,
+            "UtxoPsbt.locktime": 6,
+            "UtxoPsbt.min_witness_weight": 7,
+            "UtxoPsbt.reserve": 5,
+            "UtxoPsbt.reservedok": 8,
+            "UtxoPsbt.satoshi": 1,
+            "UtxoPsbt.startweight": 3,
+            "UtxoPsbt.utxos[]": 4
+        },
+        "UtxopsbtReservations": {
+            "UtxoPsbt.reservations[].reserved": 4,
+            "UtxoPsbt.reservations[].reserved_to_block": 5,
+            "UtxoPsbt.reservations[].txid": 1,
+            "UtxoPsbt.reservations[].vout": 2,
+            "UtxoPsbt.reservations[].was_reserved": 3
+        },
+        "UtxopsbtResponse": {
+            "UtxoPsbt.change_outnum": 5,
+            "UtxoPsbt.estimated_final_weight": 3,
+            "UtxoPsbt.excess_msat": 4,
+            "UtxoPsbt.feerate_per_kw": 2,
+            "UtxoPsbt.psbt": 1,
+            "UtxoPsbt.reservations[]": 6
+        },
+        "WaitanyinvoiceRequest": {
+            "WaitAnyInvoice.lastpay_index": 1,
+            "WaitAnyInvoice.timeout": 2
+        },
+        "WaitanyinvoiceResponse": {
+            "WaitAnyInvoice.amount_msat": 6,
+            "WaitAnyInvoice.amount_received_msat": 10,
+            "WaitAnyInvoice.bolt11": 7,
+            "WaitAnyInvoice.bolt12": 8,
+            "WaitAnyInvoice.description": 2,
+            "WaitAnyInvoice.expires_at": 5,
+            "WaitAnyInvoice.label": 1,
+            "WaitAnyInvoice.paid_at": 11,
+            "WaitAnyInvoice.pay_index": 9,
+            "WaitAnyInvoice.payment_hash": 3,
+            "WaitAnyInvoice.payment_preimage": 12,
+            "WaitAnyInvoice.status": 4
+        },
+        "WaitinvoiceRequest": {
+            "WaitInvoice.label": 1
+        },
+        "WaitinvoiceResponse": {
+            "WaitInvoice.amount_msat": 6,
+            "WaitInvoice.amount_received_msat": 10,
+            "WaitInvoice.bolt11": 7,
+            "WaitInvoice.bolt12": 8,
+            "WaitInvoice.description": 2,
+            "WaitInvoice.expires_at": 5,
+            "WaitInvoice.label": 1,
+            "WaitInvoice.paid_at": 11,
+            "WaitInvoice.pay_index": 9,
+            "WaitInvoice.payment_hash": 3,
+            "WaitInvoice.payment_preimage": 12,
+            "WaitInvoice.status": 4
+        },
+        "WaitsendpayRequest": {
+            "WaitSendPay.groupid": 4,
+            "WaitSendPay.partid": 2,
+            "WaitSendPay.payment_hash": 1,
+            "WaitSendPay.timeout": 3
+        },
+        "WaitsendpayResponse": {
+            "WaitSendPay.amount_msat": 5,
+            "WaitSendPay.amount_sent_msat": 8,
+            "WaitSendPay.bolt11": 11,
+            "WaitSendPay.bolt12": 12,
+            "WaitSendPay.created_at": 7,
+            "WaitSendPay.destination": 6,
+            "WaitSendPay.groupid": 2,
+            "WaitSendPay.id": 1,
+            "WaitSendPay.label": 9,
+            "WaitSendPay.partid": 10,
+            "WaitSendPay.payment_hash": 3,
+            "WaitSendPay.payment_preimage": 13,
+            "WaitSendPay.status": 4
+        },
+        "WithdrawRequest": {
+            "Withdraw.destination": 1,
+            "Withdraw.feerate": 5,
+            "Withdraw.minconf": 3,
+            "Withdraw.satoshi": 2,
+            "Withdraw.utxos[]": 4
+        },
+        "WithdrawResponse": {
+            "Withdraw.psbt": 3,
+            "Withdraw.tx": 1,
+            "Withdraw.txid": 2
+        }
+    }
+}

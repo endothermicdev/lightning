@@ -11,6 +11,25 @@
 #include <inttypes.h>
 #include <lightningd/lightningd.h>
 
+#if DEVELOPER
+bool dev_bolt11_no_c_generation;
+
+/* For test vectors, older ones put p before s. */
+static bool modern_order(const struct bolt11 *b11)
+{
+	if (!b11->description)
+		return true;
+	if (streq(b11->description,
+		  "Blockstream Store: 88.85 USD for Blockstream Ledger Nano S x 1, \"Back In My Day\" Sticker x 2, \"I Got Lightning Working\" Sticker x 2 and 1 more items"))
+		return false;
+	if (streq(b11->description, "coffee beans"))
+		return false;
+	if (streq(b11->description, "payment metadata inside"))
+		return false;
+	return true;
+}
+#endif
+
 struct multiplier {
 	const char letter;
 	/* We can't represent p postfix to msat, so we multiply this by 10 */
@@ -224,7 +243,7 @@ static void decode_h(struct bolt11 *b11,
 static char *decode_x(struct bolt11 *b11,
 		      struct hash_u5 *hu5,
 		      u5 **data, size_t *data_len,
-		      size_t data_length, const bool *have_x)
+		      size_t data_length, bool *have_x)
 {
 	if (*have_x)
 		return unknown_field(b11, hu5, data, data_len, 'x',
@@ -234,6 +253,8 @@ static char *decode_x(struct bolt11 *b11,
 	if (!pull_uint(hu5, data, data_len, &b11->expiry, data_length * 5))
 		return tal_fmt(b11, "x: length %zu chars is excessive",
 			       *data_len);
+
+	*have_x = true;
 	return NULL;
 }
 
@@ -245,7 +266,7 @@ static char *decode_x(struct bolt11 *b11,
 static char *decode_c(struct bolt11 *b11,
 		      struct hash_u5 *hu5,
 		      u5 **data, size_t *data_len,
-		      size_t data_length, const bool *have_c)
+		      size_t data_length, bool *have_c)
 {
 	u64 c;
 	if (*have_c)
@@ -261,6 +282,7 @@ static char *decode_c(struct bolt11 *b11,
 	if (b11->min_final_cltv_expiry != c)
 		return tal_fmt(b11, "c: %"PRIu64" is too large", c);
 
+	*have_c = true;
 	return NULL;
 }
 
@@ -439,7 +461,7 @@ static char *decode_r(struct bolt11 *b11,
 	size_t rlen = data_length * 5 / 8;
 	u8 *r8 = tal_arr(tmpctx, u8, rlen);
 	size_t n = 0;
-	struct route_info *r = tal_arr(tmpctx, struct route_info, n);
+	struct route_info *r = tal_arr(b11->routes, struct route_info, n);
 	const u8 *cursor = r8;
 
 	/* Route hops don't split in 5 bit boundaries, so convert whole thing */
@@ -454,7 +476,7 @@ static char *decode_r(struct bolt11 *b11,
 	} while (rlen);
 
 	/* Append route */
-	tal_arr_expand(&b11->routes, tal_steal(b11, r));
+	tal_arr_expand(&b11->routes, r);
 	return NULL;
 }
 
@@ -513,6 +535,33 @@ static char *decode_9(struct bolt11 *b11,
 	return NULL;
 }
 
+/* BOLT #11:
+ *
+ * `m` (27): `data_length` variable. Additional metadata to attach to
+ * the payment. Note that the size of this field is limited by the
+ * maximum hop payload size. Long metadata fields reduce the maximum
+ * route length.
+ */
+static char *decode_m(struct bolt11 *b11,
+		      struct hash_u5 *hu5,
+		      u5 **data, size_t *data_len,
+		      size_t data_length,
+		      bool *have_m)
+{
+	size_t mlen = (data_length * 5) / 8;
+
+	if (*have_m)
+		return unknown_field(b11, hu5, data, data_len, 'm',
+				     data_length);
+
+	b11->metadata = tal_arr(b11, u8, mlen);
+	pull_bits_certain(hu5, data, data_len, b11->metadata,
+			  data_length * 5, false);
+
+	*have_m = true;
+	return NULL;
+}
+
 struct bolt11 *new_bolt11(const tal_t *ctx,
 			  const struct amount_msat *msat TAKES)
 {
@@ -532,6 +581,7 @@ struct bolt11 *new_bolt11(const tal_t *ctx,
 	 */
 	b11->min_final_cltv_expiry = 18;
 	b11->payment_secret = NULL;
+	b11->metadata = NULL;
 
 	if (msat)
 		b11->msat = tal_dup(b11, struct amount_msat, msat);
@@ -554,7 +604,7 @@ struct bolt11 *bolt11_decode_nosig(const tal_t *ctx, const char *str,
 	struct bolt11 *b11 = new_bolt11(ctx, NULL);
 	struct hash_u5 hu5;
 	bool have_p = false, have_d = false, have_h = false,
-		have_x = false, have_c = false, have_s = false;
+		have_x = false, have_c = false, have_s = false, have_m = false;
 
 	*have_n = false;
 	b11->routes = tal_arr(b11, struct route_info *, 0);
@@ -757,6 +807,10 @@ struct bolt11 *bolt11_decode_nosig(const tal_t *ctx, const char *str,
 			problem = decode_s(b11, &hu5, &data, &data_len,
 					   data_length, &have_s);
 			break;
+		case 'm':
+			problem = decode_m(b11, &hu5, &data, &data_len,
+					   data_length, &have_m);
+			break;
 		default:
 			unknown_field(b11, &hu5, &data, &data_len,
 				      bech32_charset[type], data_length);
@@ -933,6 +987,11 @@ static void encode_p(u5 **data, const struct sha256 *hash)
 	push_field(data, 'p', hash, 256);
 }
 
+static void encode_m(u5 **data, const u8 *metadata)
+{
+	push_field(data, 'm', metadata, tal_bytelen(metadata) * CHAR_BIT);
+}
+
 static void encode_d(u5 **data, const char *description)
 {
 	push_field(data, 'd', description, strlen(description) * CHAR_BIT);
@@ -956,6 +1015,8 @@ static void encode_x(u5 **data, u64 expiry)
 
 static void encode_c(u5 **data, u16 min_final_cltv_expiry)
 {
+	if (IFDEV(dev_bolt11_no_c_generation, false))
+		return;
 	push_varlen_field(data, 'c', min_final_cltv_expiry);
 }
 
@@ -1008,13 +1069,20 @@ static void encode_r(u5 **data, const struct route_info *r)
 	tal_free(rinfo);
 }
 
-static void maybe_encode_9(u5 **data, const u8 *features)
+static void maybe_encode_9(u5 **data, const u8 *features,
+			   bool have_payment_metadata)
 {
 	u5 *f5 = tal_arr(NULL, u5, 0);
 
 	for (size_t i = 0; i < tal_count(features) * CHAR_BIT; i++) {
 		if (!feature_is_set(features, i))
 			continue;
+
+		/* Don't set option_payment_metadata unless we acually use it */
+		if (!have_payment_metadata
+		    && COMPULSORY_FEATURE(i) == OPT_PAYMENT_METADATA)
+			continue;
+
 		/* We expand it out so it makes a BE 5-bit/btye bitfield */
 		set_feature_bit(&f5, (i / 5) * 8 + (i % 5));
 	}
@@ -1107,6 +1175,13 @@ char *bolt11_encode_(const tal_t *ctx,
 	 */
 	push_varlen_uint(&data, b11->timestamp, 35);
 
+	/* This is a hack to match the test vectors, *some* of which
+	 * order differently! */
+	if (IFDEV(modern_order(b11), true)) {
+		if (b11->payment_secret)
+			encode_s(&data, b11->payment_secret);
+	}
+
 	/* BOLT #11:
 	 *
 	 * if a writer offers more than one of any field type,
@@ -1116,14 +1191,27 @@ char *bolt11_encode_(const tal_t *ctx,
 	/* Thus we do built-in fields, then extras last. */
 	encode_p(&data, &b11->payment_hash);
 
-	if (b11->description)
-		encode_d(&data, b11->description);
-
+	/* BOLT #11:
+	 * A writer:
+	 *...
+	 *    - MUST include either exactly one `d` or exactly one `h` field.
+	 */
+	/* We sometimes keep description around (to put in db), so prefer hash */
 	if (b11->description_hash)
 		encode_h(&data, b11->description_hash);
+	else if (b11->description)
+		encode_d(&data, b11->description);
+
+	if (b11->metadata)
+		encode_m(&data, b11->metadata);
 
 	if (n_field)
 		encode_n(&data, &b11->receiver_id);
+
+	if (IFDEV(!modern_order(b11), false)) {
+		if (b11->payment_secret)
+			encode_s(&data, b11->payment_secret);
+	}
 
 	if (b11->expiry != DEFAULT_X)
 		encode_x(&data, b11->expiry);
@@ -1133,16 +1221,13 @@ char *bolt11_encode_(const tal_t *ctx,
 	 */
 	encode_c(&data, b11->min_final_cltv_expiry);
 
-	if (b11->payment_secret)
-		encode_s(&data, b11->payment_secret);
-
 	for (size_t i = 0; i < tal_count(b11->fallbacks); i++)
 		encode_f(&data, b11->fallbacks[i]);
 
 	for (size_t i = 0; i < tal_count(b11->routes); i++)
 		encode_r(&data, b11->routes[i]);
 
-	maybe_encode_9(&data, b11->features);
+	maybe_encode_9(&data, b11->features, b11->metadata != NULL);
 
 	list_for_each(&b11->extra_fields, extra, list)
 		if (!encode_extra(&data, extra))

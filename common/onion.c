@@ -9,41 +9,20 @@
 
 /* BOLT #4:
  *
- * ## Legacy `hop_data` payload format
+ * ### `tlv_payload` format
  *
- * The `hop_data` format is identified by a single `0x00`-byte length,
- * for backward compatibility.  Its payload is defined as:
- *
- * 1. type: `hop_data` (for `realm` 0)
- * 2. data:
- *    * [`short_channel_id`:`short_channel_id`]
- *    * [`u64`:`amt_to_forward`]
- *    * [`u32`:`outgoing_cltv_value`]
- *    * [`12*byte`:`padding`]
+ * This is a more flexible format, which avoids the redundant
+ * `short_channel_id` field for the final node.  It is formatted
+ * according to the Type-Length-Value format defined in [BOLT
+ * #1](01-messaging.md#type-length-value-format).
  */
-static u8 *make_v0_hop(const tal_t *ctx,
-		       const struct short_channel_id *scid,
-		       struct amount_msat forward, u32 outgoing_cltv)
-{
-	const u8 padding[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-			      0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-	/* Prepend 0 byte for realm */
-	u8 *buf = tal_arrz(ctx, u8, 1);
-	towire_short_channel_id(&buf, scid);
-	towire_amount_msat(&buf, forward);
-	towire_u32(&buf, outgoing_cltv);
-	towire(&buf, padding, ARRAY_SIZE(padding));
-	assert(tal_bytelen(buf) == 1 + 32);
-	return buf;
-}
-
 static u8 *make_tlv_hop(const tal_t *ctx,
 			const struct tlv_tlv_payload *tlv)
 {
 	/* We can't have over 64k anyway */
 	u8 *tlvs = tal_arr(ctx, u8, 3);
 
-	towire_tlv_payload(&tlvs, tlv);
+	towire_tlv_tlv_payload(&tlvs, tlv);
 
 	switch (bigsize_put(tlvs, tal_bytelen(tlvs) - 3)) {
 	case 1:
@@ -58,99 +37,78 @@ static u8 *make_tlv_hop(const tal_t *ctx,
 }
 
 u8 *onion_nonfinal_hop(const tal_t *ctx,
-		       bool use_tlv,
 		       const struct short_channel_id *scid,
 		       struct amount_msat forward,
 		       u32 outgoing_cltv,
 		       const struct pubkey *blinding,
 		       const u8 *enctlv)
 {
-	if (use_tlv) {
-		struct tlv_tlv_payload *tlv = tlv_tlv_payload_new(tmpctx);
+	struct tlv_tlv_payload *tlv = tlv_tlv_payload_new(tmpctx);
 
-		/* BOLT #4:
-		 *
-		 * The writer:
-		 *...
-		 *  - For every node:
-		 *    - MUST include `amt_to_forward` and `outgoing_cltv_value`.
-		 *  - For every non-final node:
-		 *    - MUST include `short_channel_id`
-		 *    - MUST NOT include `payment_data`
-		 */
-		tlv->amt_to_forward = &forward.millisatoshis; /* Raw: TLV convert */
-		tlv->outgoing_cltv_value = &outgoing_cltv;
-		tlv->short_channel_id = cast_const(struct short_channel_id *,
-						   scid);
+	/* BOLT #4:
+	 *
+	 * The writer:
+	 *...
+	 *  - For every node:
+	 *    - MUST include `amt_to_forward` and `outgoing_cltv_value`.
+	 *  - For every non-final node:
+	 *    - MUST include `short_channel_id`
+	 *    - MUST NOT include `payment_data`
+	 */
+	tlv->amt_to_forward = &forward.millisatoshis; /* Raw: TLV convert */
+	tlv->outgoing_cltv_value = &outgoing_cltv;
+	tlv->short_channel_id = cast_const(struct short_channel_id *, scid);
 #if EXPERIMENTAL_FEATURES
-		tlv->blinding_point = cast_const(struct pubkey *, blinding);
-		tlv->encrypted_recipient_data = cast_const(u8 *, enctlv);
+	tlv->blinding_point = cast_const(struct pubkey *, blinding);
+	tlv->encrypted_recipient_data = cast_const(u8 *, enctlv);
 #endif
-		return make_tlv_hop(ctx, tlv);
-	} else {
-#if EXPERIMENTAL_FEATURES
-		if (blinding || enctlv)
-			return NULL;
-#endif
-		return make_v0_hop(ctx, scid, forward, outgoing_cltv);
-	}
+	return make_tlv_hop(ctx, tlv);
 }
 
 u8 *onion_final_hop(const tal_t *ctx,
-		    bool use_tlv,
 		    struct amount_msat forward,
 		    u32 outgoing_cltv,
 		    struct amount_msat total_msat,
 		    const struct pubkey *blinding,
 		    const u8 *enctlv,
-		    const struct secret *payment_secret)
+		    const struct secret *payment_secret,
+		    const u8 *payment_metadata)
 {
+	struct tlv_tlv_payload *tlv = tlv_tlv_payload_new(tmpctx);
+	struct tlv_tlv_payload_payment_data tlv_pdata;
+
 	/* These go together! */
 	if (!payment_secret)
 		assert(amount_msat_eq(total_msat, forward));
 
-	if (use_tlv) {
-		struct tlv_tlv_payload *tlv = tlv_tlv_payload_new(tmpctx);
-		struct tlv_tlv_payload_payment_data tlv_pdata;
+	/* BOLT #4:
+	 *
+	 * The writer:
+	 *...
+	 *  - For every node:
+	 *    - MUST include `amt_to_forward` and `outgoing_cltv_value`.
+	 *...
+	 *  - For the final node:
+	 *    - MUST NOT include `short_channel_id`
+	 *    - if the recipient provided `payment_secret`:
+	 *      - MUST include `payment_data`
+	 *      - MUST set `payment_secret` to the one provided
+	 *      - MUST set `total_msat` to the total amount it will send
+	 */
+	tlv->amt_to_forward = &forward.millisatoshis; /* Raw: TLV convert */
+	tlv->outgoing_cltv_value = &outgoing_cltv;
 
-		/* BOLT #4:
-		 *
-		 * The writer:
-		 *...
-		 *  - For every node:
-		 *    - MUST include `amt_to_forward` and `outgoing_cltv_value`.
-		 *...
-		 *  - For the final node:
-		 *    - MUST NOT include `short_channel_id`
-		 *    - if the recipient provided `payment_secret`:
-		 *      - MUST include `payment_data`
-		 *      - MUST set `payment_secret` to the one provided
-		 *      - MUST set `total_msat` to the total amount it will send
-		 */
-		tlv->amt_to_forward = &forward.millisatoshis; /* Raw: TLV convert */
-		tlv->outgoing_cltv_value = &outgoing_cltv;
-
-		if (payment_secret) {
-			tlv_pdata.payment_secret = *payment_secret;
-			tlv_pdata.total_msat = total_msat.millisatoshis; /* Raw: TLV convert */
-			tlv->payment_data = &tlv_pdata;
-		}
-#if EXPERIMENTAL_FEATURES
-		tlv->blinding_point = cast_const(struct pubkey *, blinding);
-		tlv->encrypted_recipient_data = cast_const(u8 *, enctlv);
-#endif
-		return make_tlv_hop(ctx, tlv);
-	} else {
-		static struct short_channel_id all_zero_scid;
-		/* No payment secrets in legacy format. */
-		if (payment_secret)
-			return NULL;
-#if EXPERIMENTAL_FEATURES
-		if (blinding || enctlv)
-			return NULL;
-#endif
-		return make_v0_hop(ctx, &all_zero_scid, forward, outgoing_cltv);
+	if (payment_secret) {
+		tlv_pdata.payment_secret = *payment_secret;
+		tlv_pdata.total_msat = total_msat.millisatoshis; /* Raw: TLV convert */
+		tlv->payment_data = &tlv_pdata;
 	}
+	tlv->payment_metadata = cast_const(u8 *, payment_metadata);
+#if EXPERIMENTAL_FEATURES
+	tlv->blinding_point = cast_const(struct pubkey *, blinding);
+	tlv->encrypted_recipient_data = cast_const(u8 *, enctlv);
+#endif
+	return make_tlv_hop(ctx, tlv);
 }
 
 /* Returns true if valid, and fills in type. */
@@ -234,7 +192,6 @@ static struct tlv_tlv_payload *decrypt_tlv(const tal_t *ctx,
 	const u8 *cursor;
 	size_t max;
 	int ret;
-	struct tlv_tlv_payload *tlv;
 
 	subkey_from_hmac("rho", blinding_ss, &rho);
 	if (tal_bytelen(enc) < crypto_aead_chacha20poly1305_ietf_ABYTES)
@@ -253,13 +210,9 @@ static struct tlv_tlv_payload *decrypt_tlv(const tal_t *ctx,
 	if (ret != 0)
 		return NULL;
 
-	tlv = tlv_tlv_payload_new(ctx);
 	cursor = dec;
 	max = tal_bytelen(dec);
-	if (!fromwire_tlv_payload(&cursor, &max, tlv))
-		return tal_free(tlv);
-
-	return tlv;
+	return fromwire_tlv_tlv_payload(ctx, &cursor, &max);
 }
 #endif /* EXPERIMENTAL_FEATURES */
 
@@ -267,7 +220,7 @@ struct onion_payload *onion_decode(const tal_t *ctx,
 				   const struct route_step *rs,
 				   const struct pubkey *blinding,
 				   const struct secret *blinding_ss,
-				   u64 *accepted_extra_tlvs,
+				   const u64 *accepted_extra_tlvs,
 				   u64 *failtlvtype,
 				   size_t *failtlvpos)
 {
@@ -276,140 +229,161 @@ struct onion_payload *onion_decode(const tal_t *ctx,
 	size_t max = tal_bytelen(cursor), len;
 	struct tlv_tlv_payload *tlv;
 
-	if (!pull_payload_length(&cursor, &max, true, &p->type, &len))
-		return tal_free(p);
+	if (!pull_payload_length(&cursor, &max, true, &p->type, &len)) {
+		*failtlvtype = 0;
+		*failtlvpos = tal_bytelen(rs->raw_payload);
+		goto fail_no_tlv;
+	}
 
-	switch (p->type) {
-	case ONION_V0_PAYLOAD:
-		p->type = ONION_V0_PAYLOAD;
+	/* Very limited legacy handling: forward only. */
+	if (p->type == ONION_V0_PAYLOAD && rs->nextcase == ONION_FORWARD) {
 		p->forward_channel = tal(p, struct short_channel_id);
 		fromwire_short_channel_id(&cursor, &max, p->forward_channel);
+		p->total_msat = NULL;
 		p->amt_to_forward = fromwire_amount_msat(&cursor, &max);
 		p->outgoing_cltv = fromwire_u32(&cursor, &max);
 		p->payment_secret = NULL;
+		p->payment_metadata = NULL;
 		p->blinding = NULL;
 		/* We can't handle blinding with a legacy payload */
 		if (blinding)
 			return tal_free(p);
-
-		if (rs->nextcase == ONION_FORWARD) {
-			p->total_msat = NULL;
-		} else {
-			/* BOLT #4:
-			 * - if it is the final node:
-			 *   - MUST treat `total_msat` as if it were equal to
-			 *     `amt_to_forward` if it is not present. */
-			p->total_msat = tal_dup(p, struct amount_msat,
-						&p->amt_to_forward);
-		}
-
 		/* If they somehow got an invalid onion this far, fail. */
 		if (!cursor)
 			return tal_free(p);
 		p->tlv = NULL;
 		return p;
-
-	case ONION_TLV_PAYLOAD:
-		tlv = tlv_tlv_payload_new(p);
-		if (!fromwire_tlv_payload(&cursor, &max, tlv))
-			goto fail;
-
-		if (!tlv_fields_valid(tlv->fields, accepted_extra_tlvs, failtlvpos)) {
-			*failtlvtype = tlv->fields[*failtlvpos].numtype;
-			goto fail;
-		}
-
-		/* BOLT #4:
-		 *
-		 * The reader:
-		 *   - MUST return an error if `amt_to_forward` or
-		 *     `outgoing_cltv_value` are not present.
-		 */
-		if (!tlv->amt_to_forward || !tlv->outgoing_cltv_value)
-			goto fail;
-
-		p->amt_to_forward = amount_msat(*tlv->amt_to_forward);
-		p->outgoing_cltv = *tlv->outgoing_cltv_value;
-
-		/* BOLT #4:
-		 *
-		 * The writer:
-		 *...
-		 *  - For every non-final node:
-		 *    - MUST include `short_channel_id`
-		 */
-		if (rs->nextcase == ONION_FORWARD) {
-			if (!tlv->short_channel_id)
-				goto fail;
-			p->forward_channel = tal_dup(p, struct short_channel_id,
-						     tlv->short_channel_id);
-			p->total_msat = NULL;
-		} else {
-			p->forward_channel = NULL;
-			/* BOLT #4:
-			 * - if it is the final node:
-			 *   - MUST treat `total_msat` as if it were equal to
-			 *     `amt_to_forward` if it is not present. */
-			p->total_msat = tal_dup(p, struct amount_msat,
-						&p->amt_to_forward);
-		}
-
-		p->payment_secret = NULL;
-		p->blinding = tal_dup_or_null(p, struct pubkey, blinding);
-
-#if EXPERIMENTAL_FEATURES
-		if (!p->blinding) {
-			/* If we have no blinding, it could be in TLV. */
-			if (tlv->blinding_point) {
-				p->blinding =
-					tal_dup(p, struct pubkey,
-						tlv->blinding_point);
-				ecdh(p->blinding, &p->blinding_ss);
-			}
-		} else
-			p->blinding_ss = *blinding_ss;
-
-		if (p->blinding) {
-			/* If they give us a blinding and we're not terminal,
-			 * we must have an enctlv. */
-			if (rs->nextcase == ONION_FORWARD) {
-				struct tlv_tlv_payload *ntlv;
-
-				if (!tlv->encrypted_recipient_data)
-					goto fail;
-
-				ntlv = decrypt_tlv(tmpctx,
-						   &p->blinding_ss,
-						   tlv->encrypted_recipient_data);
-				if (!ntlv)
-					goto fail;
-
-				/* Must override short_channel_id */
-				if (!ntlv->short_channel_id)
-					goto fail;
-
-				*p->forward_channel
-					= *ntlv->short_channel_id;
-			}
-		}
-#endif /* EXPERIMENTAL_FEATURES */
-
-		if (tlv->payment_data) {
-			p->payment_secret = tal_dup(p, struct secret,
-						    &tlv->payment_data->payment_secret);
-			tal_free(p->total_msat);
-			p->total_msat = tal(p, struct amount_msat);
-			*p->total_msat
-				= amount_msat(tlv->payment_data->total_msat);
-		}
-		p->tlv = tal_steal(p, tlv);
-		return p;
 	}
 
-	/* You said it was a valid type! */
-	abort();
+	/* We do this manually so we can accept extra types, and get
+	 * error off and type. */
+	tlv = tlv_tlv_payload_new(p);
+	if (!fromwire_tlv(&cursor, &max, tlvs_tlv_tlv_payload,
+			  TLVS_ARRAY_SIZE_tlv_tlv_payload,
+			  tlv, &tlv->fields, accepted_extra_tlvs,
+			  failtlvpos, failtlvtype)) {
+		goto fail;
+	}
+
+	/* BOLT #4:
+	 *
+	 * The reader:
+	 *   - MUST return an error if `amt_to_forward` or
+	 *     `outgoing_cltv_value` are not present.
+	 */
+	if (!tlv->amt_to_forward) {
+		*failtlvtype = TLV_TLV_PAYLOAD_AMT_TO_FORWARD;
+		goto field_bad;
+	}
+	if (!tlv->outgoing_cltv_value) {
+		*failtlvtype = TLV_TLV_PAYLOAD_OUTGOING_CLTV_VALUE;
+		goto field_bad;
+	}
+
+	p->amt_to_forward = amount_msat(*tlv->amt_to_forward);
+	p->outgoing_cltv = *tlv->outgoing_cltv_value;
+
+	/* BOLT #4:
+	 *
+	 * The writer:
+	 *...
+	 *  - For every non-final node:
+	 *    - MUST include `short_channel_id`
+	 */
+	if (rs->nextcase == ONION_FORWARD) {
+		if (!tlv->short_channel_id) {
+			*failtlvtype = TLV_TLV_PAYLOAD_SHORT_CHANNEL_ID;
+			goto field_bad;
+		}
+		p->forward_channel = tal_dup(p, struct short_channel_id,
+					     tlv->short_channel_id);
+		p->total_msat = NULL;
+	} else {
+		p->forward_channel = NULL;
+		/* BOLT #4:
+		 * - if it is the final node:
+		 *   - MUST treat `total_msat` as if it were equal to
+		 *     `amt_to_forward` if it is not present. */
+		p->total_msat = tal_dup(p, struct amount_msat,
+					&p->amt_to_forward);
+	}
+
+	p->payment_secret = NULL;
+	p->blinding = tal_dup_or_null(p, struct pubkey, blinding);
+
+#if EXPERIMENTAL_FEATURES
+	if (!p->blinding) {
+		/* If we have no blinding, it could be in TLV. */
+		if (tlv->blinding_point) {
+			p->blinding =
+				tal_dup(p, struct pubkey,
+					tlv->blinding_point);
+			ecdh(p->blinding, &p->blinding_ss);
+		}
+	} else
+		p->blinding_ss = *blinding_ss;
+
+	if (p->blinding) {
+		/* If they give us a blinding and we're not terminal,
+		 * we must have an enctlv. */
+		if (rs->nextcase == ONION_FORWARD) {
+			struct tlv_tlv_payload *ntlv;
+
+			if (!tlv->encrypted_recipient_data) {
+				*failtlvtype = TLV_TLV_PAYLOAD_ENCRYPTED_RECIPIENT_DATA;
+				goto field_bad;
+			}
+
+			ntlv = decrypt_tlv(tmpctx,
+					   &p->blinding_ss,
+					   tlv->encrypted_recipient_data);
+			if (!ntlv) {
+				*failtlvtype = TLV_TLV_PAYLOAD_ENCRYPTED_RECIPIENT_DATA;
+				goto field_bad;
+			}
+
+			/* Must override short_channel_id */
+			if (!ntlv->short_channel_id) {
+				*failtlvtype = TLV_TLV_PAYLOAD_ENCRYPTED_RECIPIENT_DATA;
+				/* Place error at *end* of enctlv,
+				 * indicating missing field. */
+				*failtlvpos = tlv_field_offset(rs->raw_payload,
+							       tal_bytelen(rs->raw_payload),
+							       *failtlvtype)
+					+ tal_bytelen(tlv->encrypted_recipient_data);
+				goto fail;
+			}
+
+			*p->forward_channel
+				= *ntlv->short_channel_id;
+		}
+	}
+#endif /* EXPERIMENTAL_FEATURES */
+
+	if (tlv->payment_data) {
+		p->payment_secret = tal_dup(p, struct secret,
+					    &tlv->payment_data->payment_secret);
+		tal_free(p->total_msat);
+		p->total_msat = tal(p, struct amount_msat);
+		*p->total_msat
+			= amount_msat(tlv->payment_data->total_msat);
+	}
+	if (tlv->payment_metadata)
+		p->payment_metadata
+			= tal_dup_talarr(p, u8, tlv->payment_metadata);
+	else
+		p->payment_metadata = NULL;
+
+	p->tlv = tal_steal(p, tlv);
+	return p;
+
+field_bad:
+	*failtlvpos = tlv_field_offset(rs->raw_payload, tal_bytelen(rs->raw_payload),
+				       *failtlvtype);
 fail:
 	tal_free(tlv);
+
+fail_no_tlv:
 	tal_free(p);
 	return NULL;
 }

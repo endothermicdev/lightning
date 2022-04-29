@@ -1,6 +1,7 @@
 /* Routines to make our own gossip messages.  Not as in "we're the gossip
  * generation, man!" */
 #include "config.h"
+#include <ccan/asort/asort.h>
 #include <ccan/cast/cast.h>
 #include <ccan/mem/mem.h>
 #include <common/daemon_conn.h>
@@ -19,6 +20,15 @@
 #include <hsmd/hsmd_wiregen.h>
 #include <wire/wire_sync.h>
 
+static bool wireaddr_arr_contains(const struct wireaddr *was,
+				  const struct wireaddr *wa)
+{
+	for (size_t i = 0; i < tal_count(was); i++)
+		if (wireaddr_eq(&was[i], wa))
+			return true;
+	return false;
+}
+
 /* Create a node_announcement with the given signature. It may be NULL in the
  * case we need to create a provisional announcement for the HSM to sign.
  * This is called twice: once with the dummy signature to get it signed and a
@@ -30,24 +40,46 @@ static u8 *create_node_announcement(const tal_t *ctx, struct daemon *daemon,
 				    u32 timestamp,
 				    const struct lease_rates *rates)
 {
+	struct wireaddr *was;
 	u8 *addresses = tal_arr(tmpctx, u8, 0);
 	u8 *announcement;
 	struct tlv_node_ann_tlvs *na_tlv;
 	size_t i;
 
+	/* add all announceable addresses */
+	was = tal_arr(tmpctx, struct wireaddr, 0);
+	for (i = 0; i < tal_count(daemon->announceable); i++)
+		tal_arr_expand(&was, daemon->announceable[i]);
+
+	/* add reported `remote_addr` v4 and v6 of our self */
+	if (daemon->remote_addr_v4 != NULL &&
+	    !wireaddr_arr_contains(was, daemon->remote_addr_v4))
+		tal_arr_expand(&was, *daemon->remote_addr_v4);
+	if (daemon->remote_addr_v6 != NULL &&
+	    !wireaddr_arr_contains(was, daemon->remote_addr_v6))
+		tal_arr_expand(&was, *daemon->remote_addr_v6);
+
+	/* Sort by address type again, as we added dynamic remote_addr v4/v6. */
+	/* BOLT #7:
+	 *
+	 * The origin node:
+	 *...
+	 *   - MUST place address descriptors in ascending order.
+	 */
+	asort(was, tal_count(was), wireaddr_cmp_type, NULL);
+
 	if (!sig)
 		sig = talz(tmpctx, secp256k1_ecdsa_signature);
 
-	for (i = 0; i < tal_count(daemon->announcable); i++)
-		towire_wireaddr(&addresses, &daemon->announcable[i]);
+	for (i = 0; i < tal_count(was); i++)
+		towire_wireaddr(&addresses, &was[i]);
 
 	na_tlv = tlv_node_ann_tlvs_new(tmpctx);
 	na_tlv->option_will_fund = cast_const(struct lease_rates *, rates);
 
 	announcement =
 	    towire_node_announcement(ctx, sig,
-				     daemon->our_features->bits
-				     [NODE_ANNOUNCE_FEATURE],
+				     daemon->our_features->bits[NODE_ANNOUNCE_FEATURE],
 				     timestamp,
 				     &daemon->id, daemon->rgb, daemon->alias,
 				     addresses,
@@ -215,12 +247,16 @@ static void sign_and_send_nannounce(struct daemon *daemon,
 
 /* Mutual recursion via timer */
 static void update_own_node_announcement_after_startup(struct daemon *daemon);
+static void setup_force_nannounce_regen_timer(struct daemon *daemon);
 
 /* This routine created a `node_announcement` for our node, and hands it to
  * the routing.c code like any other `node_announcement`.  Such announcements
  * are only accepted if there is an announced channel associated with that node
  * (to prevent spam), so we only call this once we've announced a channel. */
-static void update_own_node_announcement(struct daemon *daemon, bool startup)
+/* Returns true if this sent one, or has arranged to send one in future. */
+static bool update_own_node_announcement(struct daemon *daemon,
+					 bool startup,
+					 bool always_refresh)
 {
 	u32 timestamp = gossip_time_now(daemon->rstate).ts.tv_sec;
 	u8 *nannounce;
@@ -246,8 +282,11 @@ static void update_own_node_announcement(struct daemon *daemon, bool startup)
 		bool only_missing_tlv;
 
 		if (!nannounce_different(daemon->rstate->gs, self, nannounce,
-					 &only_missing_tlv))
-			return;
+					 &only_missing_tlv)) {
+			if (always_refresh)
+				goto send;
+			return false;
+		}
 
 		/* Missing liquidity_ad, maybe we'll get plugin callback */
 		if (startup && only_missing_tlv) {
@@ -261,7 +300,7 @@ static void update_own_node_announcement(struct daemon *daemon, bool startup)
 					       time_from_sec(delay),
 					       update_own_node_announcement_after_startup,
 					       daemon);
-			return;
+			return true;
 		}
 		/* BOLT #7:
 		 *
@@ -283,17 +322,57 @@ static void update_own_node_announcement(struct daemon *daemon, bool startup)
 					       time_from_sec(next - timestamp),
 					       update_own_node_announcement_after_startup,
 					       daemon);
-			return;
+			return true;
 		}
 	}
 
+send:
 	sign_and_send_nannounce(daemon, nannounce, timestamp);
+
+	/* Generate another one in 24 hours. */
+	setup_force_nannounce_regen_timer(daemon);
+
+	return true;
 }
 
 static void update_own_node_announcement_after_startup(struct daemon *daemon)
 {
-	update_own_node_announcement(daemon, false);
+	update_own_node_announcement(daemon, false, false);
 }
+
+/* This creates and transmits a *new* node announcement */
+static void force_self_nannounce_regen(struct daemon *daemon)
+{
+	struct node *self = get_node(daemon->rstate, &daemon->id);
+
+	/* No channels left?  We'll restart timer once we have one. */
+	if (!self || !self->bcast.index)
+		return;
+
+	update_own_node_announcement(daemon, false, true);
+}
+
+/* Because node_announcement propagation is spotty, we regenerate this every
+ * 24 hours. */
+static void setup_force_nannounce_regen_timer(struct daemon *daemon)
+{
+	struct timerel regen_time;
+
+	/* For developers we can force a regen every 24 seconds to test */
+	if (IFDEV(daemon->rstate->dev_fast_gossip_prune, false))
+		regen_time = time_from_sec(24);
+	else
+		regen_time = time_from_sec(24 * 3600);
+
+	tal_free(daemon->node_announce_regen_timer);
+	daemon->node_announce_regen_timer
+		= new_reltimer(&daemon->timers,
+			       daemon,
+			       regen_time,
+			       force_self_nannounce_regen,
+			       daemon);
+}
+
 
 /* Should we announce our own node?  Called at strategic places. */
 void maybe_send_own_node_announce(struct daemon *daemon, bool startup)
@@ -305,7 +384,7 @@ void maybe_send_own_node_announce(struct daemon *daemon, bool startup)
 	if (!daemon->rstate->local_channel_announced)
 		return;
 
-	update_own_node_announcement(daemon, startup);
+	update_own_node_announcement(daemon, startup, false);
 }
 
 /* Fast accessors for channel_update fields */
@@ -420,9 +499,13 @@ static u8 *sign_and_timestamp_update(const tal_t *ctx,
 		tal_free(unsigned_update);
 
 	/* Tell lightningd about this immediately (even if we're not actually
-	 * applying it now) */
-	msg = towire_gossipd_got_local_channel_update(NULL, &chan->scid, update);
-	daemon_conn_send(daemon->master, take(msg));
+	 * applying it now).  We choose not to send info about private
+	 * channels, even in errors. */
+	if (is_chan_public(chan)) {
+		msg = towire_gossipd_got_local_channel_update(NULL, &chan->scid,
+							      update);
+		daemon_conn_send(daemon->master, take(msg));
+	}
 
 	return update;
 }
@@ -532,9 +615,11 @@ static void sign_timestamp_and_apply_update(struct daemon *daemon,
 /* We don't want to thrash the gossip network, so we often defer sending an
  * update.  We track them here. */
 struct deferred_update {
-	struct daemon *daemon;
-	/* Off daemon->deferred_updates */
+	/* Off daemon->deferred_updates (our leak detection needs this as
+	 * first element in struct, because it's dumb!) */
 	struct list_node list;
+	/* The daemon */
+	struct daemon *daemon;
 	/* Channel it's for (and owner) */
 	const struct chan *chan;
 	int direction;

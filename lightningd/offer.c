@@ -1,6 +1,9 @@
 #include "config.h"
 #include <ccan/cast/cast.h>
+#include <ccan/json_escape/json_escape.h>
+#include <ccan/take/take.h>
 #include <common/bolt12_merkle.h>
+#include <common/configdir.h>
 #include <common/json_command.h>
 #include <common/json_helpers.h>
 #include <common/json_tok.h>
@@ -74,7 +77,7 @@ static void hsm_sign_b12(struct lightningd *ld,
 	/* Now we sanity-check! */
 	sighash_from_merkle(messagename, fieldname, merkle, &sighash);
 	if (secp256k1_schnorrsig_verify(secp256k1_ctx, sig->u8,
-					sighash.u.u8, &key->pubkey) != 1)
+					sighash.u.u8, sizeof(sighash.u.u8), &key->pubkey) != 1)
 		fatal("HSM gave bad signature %s for pubkey %s",
 		      type_to_string(tmpctx, struct bip340sig, sig),
 		      type_to_string(tmpctx, struct point32, key));
@@ -464,16 +467,21 @@ static struct command_result *json_createinvoicerequest(struct command *cmd,
 	}
 
 	/* BOLT-offers #12:
-	 *  - MUST set `payer_signature` `sig` as detailed in
+	 *  - MUST set `signature` `sig` as detailed in
 	 *  [Signature Calculation](#signature-calculation) using the `payer_key`.
 	 */
 	/* This populates the ->fields from our entries */
-	invreq->fields = tlv_make_fields(invreq, invoice_request);
+	invreq->fields = tlv_make_fields(invreq, tlv_invoice_request);
 	merkle_tlv(invreq->fields, &merkle);
-	invreq->payer_signature = tal(invreq, struct bip340sig);
-	hsm_sign_b12(cmd->ld, "invoice_request", "payer_signature",
-		     &merkle, invreq->payer_info, invreq->payer_key,
-		     invreq->payer_signature);
+	invreq->signature = tal(invreq, struct bip340sig);
+	if (deprecated_apis)
+		hsm_sign_b12(cmd->ld, "invoice_request", "payer_signature",
+			     &merkle, invreq->payer_info, invreq->payer_key,
+			     invreq->signature);
+	else
+		hsm_sign_b12(cmd->ld, "invoice_request", "signature",
+			     &merkle, invreq->payer_info, invreq->payer_key,
+			     invreq->signature);
 
 	response = json_stream_success(cmd);
 	json_add_string(response, "bolt12", invrequest_encode(tmpctx, invreq));

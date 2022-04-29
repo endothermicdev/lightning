@@ -158,6 +158,7 @@ struct htlc_in *new_htlc_in(const tal_t *ctx,
 	hin->failonion = NULL;
 	hin->preimage = NULL;
 	hin->we_filled = NULL;
+	hin->payload = NULL;
 
 	hin->received_time = time_now();
 
@@ -200,9 +201,6 @@ struct htlc_out *htlc_out_check(const struct htlc_out *hout,
 				return corrupt(abortstr,
 					       "Output failmsg, input preimage");
 		} else if (hout->failmsg) {
-			if (hout->in->failonion)
-				return corrupt(abortstr,
-					       "Output failmsg, input failonion");
 			if (hout->in->preimage)
 				return corrupt(abortstr,
 					       "Output failmsg, input preimage");

@@ -33,6 +33,10 @@ struct config {
 	/* htlcs per channel */
 	u32 max_concurrent_htlcs;
 
+	/* htlc min/max values */
+	struct amount_msat htlc_minimum_msat;
+	struct amount_msat htlc_maximum_msat;
+
 	/* Max amount of dust allowed per channel */
 	struct amount_msat max_dust_htlc_exposure_msat;
 
@@ -51,6 +55,9 @@ struct config {
 
 	/* Are we allowed to use DNS lookup for peers. */
 	bool use_dns;
+
+	/* Turn off IP address announcement discovered via peer `remote_addr` */
+	bool disable_ip_discovery;
 
 	/* Minimal amount of effective funding_satoshis for accepting channels */
 	u64 min_capacity_sat;
@@ -144,9 +151,15 @@ struct lightningd {
 	/* Setup: And the bitset for each, whether to listen, announce or both */
 	enum addr_listen_announce *proposed_listen_announce;
 
-	/* Actual bindings and announcables from gossipd */
+	/* Actual bindings and announceables from gossipd */
 	struct wireaddr_internal *binding;
-	struct wireaddr *announcable;
+	struct wireaddr *announceable;
+
+	/* unverified remote_addr as reported by recent peers */
+	struct wireaddr *remote_addr_v4;
+	struct wireaddr *remote_addr_v6;
+	struct node_id remote_addr_v4_peer;
+	struct node_id remote_addr_v6_peer;
 
 	/* Bearer of all my secrets. */
 	int hsm_fd;
@@ -187,6 +200,8 @@ struct lightningd {
 	struct list_head close_commands;
 	/* Outstanding ping commands. */
 	struct list_head ping_commands;
+	/* Outstanding disconnect commands. */
+	struct list_head disconnect_commands;
 
 	/* Maintained by invoices.c */
 	struct invoices *invoices;
@@ -259,6 +274,9 @@ struct lightningd {
 
 	/* Tell channeld to disable commits after this many. */
 	int dev_disable_commit;
+
+	/* Tell channeld not to worry about pings. */
+	bool dev_no_ping_timer;
 #endif /* DEVELOPER */
 
 	/* tor support */

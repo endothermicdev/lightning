@@ -4,13 +4,13 @@ lightning-listforwards -- Command showing all htlcs and their information
 SYNOPSIS
 --------
 
-**listforwards** \[*status*\] \[*in_channel*\] \[*out_channel*\]
+**listforwards** [*status*] [*in_channel*] [*out_channel*]
 
 DESCRIPTION
 -----------
 
 The **listforwards** RPC command displays all htlcs that have been
-attempted to be forwarded by the c-lightning node.
+attempted to be forwarded by the Core Lightning node.
 
 If *status* is specified, then only the forwards with the given status are returned.
 *status* can be either *offered* or *settled* or *failed* or *local_failed*
@@ -29,6 +29,7 @@ On success, an object containing **forwards** is returned.  It is an array of ob
 - **received_time** (number): the UNIX timestamp when this was received
 - **out_channel** (short_channel_id, optional): the channel that the HTLC was forwarded to
 - **payment_hash** (hex, optional): payment hash sought by HTLC (always 64 characters)
+- **style** (string, optional): Either a legacy onion format or a modern tlv format (one of "legacy", "tlv")
 
 If **out_channel** is present:
   - **fee_msat** (msat): the amount this paid in fees
@@ -58,4 +59,4 @@ RESOURCES
 
 Main web site: <https://github.com/ElementsProject/lightning>
 
-[comment]: # ( SHA256STAMP:abfaaa00817734d8acb77d02d7c024112c90605a8f93a134971a617ab4d383f9)
+[comment]: # ( SHA256STAMP:131410f052b8a1845c8d3c7eb2d48df0fc7638e7d26817f56863815be86d8f1e)

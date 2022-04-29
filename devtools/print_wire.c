@@ -7,24 +7,90 @@
 #include <errno.h>
 #include <stdio.h>
 
-void printwire_u8(const char *fieldname, const u8 *v)
+bool printwire_u8(const char *fieldname, const u8 **cursor, size_t *plen)
 {
-	printf("%u\n", *v);
+	u8 v = fromwire_u8(cursor, plen);
+	if (!*cursor) {
+		printf("**TRUNCATED u8 %s**\n", fieldname);
+		return false;
+	}
+	printf("%u\n", v);
+	return true;
 }
 
-void printwire_u16(const char *fieldname, const u16 *v)
+bool printwire_u16(const char *fieldname, const u8 **cursor, size_t *plen)
 {
-	printf("%u\n", *v);
+	u16 v = fromwire_u16(cursor, plen);
+	if (!*cursor) {
+		printf("**TRUNCATED u16 %s**\n", fieldname);
+		return false;
+	}
+	printf("%u\n", v);
+	return true;
 }
 
-void printwire_u32(const char *fieldname, const u32 *v)
+bool printwire_u32(const char *fieldname, const u8 **cursor, size_t *plen)
 {
-	printf("%u\n", *v);
+	u32 v = fromwire_u32(cursor, plen);
+	if (!*cursor) {
+		printf("**TRUNCATED u32 %s**\n", fieldname);
+		return false;
+	}
+	printf("%u\n", v);
+	return true;
 }
 
-void printwire_u64(const char *fieldname, const u64 *v)
+bool printwire_u64(const char *fieldname, const u8 **cursor, size_t *plen)
 {
-	printf("%"PRIu64"\n", *v);
+	u64 v = fromwire_u64(cursor, plen);
+	if (!*cursor) {
+		printf("**TRUNCATED u64 %s**\n", fieldname);
+		return false;
+	}
+	printf("%"PRIu64"\n", v);
+	return true;
+}
+
+bool printwire_tu16(const char *fieldname, const u8 **cursor, size_t *plen)
+{
+	u16 v = fromwire_tu16(cursor, plen);
+	if (!*cursor) {
+		printf("**TRUNCATED tu16 %s**\n", fieldname);
+		return false;
+	}
+	printf("%u\n", v);
+	return true;
+}
+
+bool printwire_tu32(const char *fieldname, const u8 **cursor, size_t *plen)
+{
+	u32 v = fromwire_tu32(cursor, plen);
+	if (!*cursor) {
+		printf("**TRUNCATED tu32 %s**\n", fieldname);
+		return false;
+	}
+	printf("%u\n", v);
+	return true;
+}
+
+bool printwire_tu64(const char *fieldname, const u8 **cursor, size_t *plen)
+{
+	u64 v = fromwire_tu64(cursor, plen);
+	if (!*cursor) {
+		printf("**TRUNCATED tu64 %s**\n", fieldname);
+		return false;
+	}
+	printf("%"PRIu64"\n", v);
+	return true;
+}
+
+bool printwire_wireaddr(const char *fieldname, const u8 **cursor, size_t *plen)
+{
+	struct wireaddr w;
+	if (!fromwire_wireaddr(cursor, plen, &w))
+		return false;
+	printf("%s\n", fmt_wireaddr(tmpctx, &w));
+	return true;
 }
 
 /* Returns false if we ran out of data. */
@@ -32,15 +98,17 @@ static bool print_hexstring(const u8 **cursor, size_t *plen, size_t len)
 {
 	while (len) {
 		u8 v = fromwire_u8(cursor, plen);
-		if (!*cursor)
+		if (!*cursor) {
+			printf("**TRUNCATED**\n");
 			return false;
+		}
 		printf("%02x", v);
 		len--;
 	}
 	return true;
 }
 
-static void printwire_alias(const u8 **cursor, size_t *plen, size_t len)
+bool printwire_utf8_array(const char *fieldname, const u8 **cursor, size_t *plen, size_t len)
 {
 	struct utf8_state utf8 = UTF8_STATE_INIT;
 	const char *p = (const char *)*cursor;
@@ -78,35 +146,41 @@ static void printwire_alias(const u8 **cursor, size_t *plen, size_t len)
 
 hexdump:
 	if (!print_hexstring(cursor, plen, len))
-		return;
+		return false;
 	printf(" ]\n");
+	return true;
 }
 
-static void printwire_addresses(const u8 **cursor, size_t *plen, size_t len)
+static bool printwire_addresses(const u8 **cursor, size_t *plen, size_t len)
 {
 	struct wireaddr addr;
+	size_t to_go = len;
+	const size_t len_ref = *plen;
 
 	printf("[");
-	while (*plen && fromwire_wireaddr(cursor, plen, &addr))
+	while (to_go && fromwire_wireaddr(cursor, plen, &addr)) {
+		to_go = len - (len_ref - *plen);
 		printf(" %s", fmt_wireaddr(NULL, &addr));
+	}
 	if (!*cursor)
-		return;
+		return false;
 
-	if (*plen != 0) {
+	if (to_go) {
 		printf(" UNKNOWN:");
 		if (!print_hexstring(cursor, plen, len))
-			return;
+			return false;
 	}
 	printf(" ]\n");
+	return true;
 }
 
-static void printwire_encoded_short_ids(const u8 **cursor, size_t *plen, size_t len)
+static bool printwire_encoded_short_ids(const u8 **cursor, size_t *plen, size_t len)
 {
 	struct short_channel_id *scids;
 	u8 *arr = fromwire_tal_arrn(tmpctx, cursor, plen, len);
 
 	if (!arr)
-		return;
+		return false;
 
 	printf("[");
 	scids = decode_short_ids(tmpctx, arr);
@@ -130,34 +204,32 @@ static void printwire_encoded_short_ids(const u8 **cursor, size_t *plen, size_t 
 		    || arr[0] == ARR_UNCOMPRESSED
 		    || arr[0] == ARR_ZLIB) {
 			printf(" **CORRUPT**");
-			return;
+			return true;
 		} else {
 			printf(" UNKNOWN:");
 			print_hexstring(cursor, plen, len);
 		}
 	}
 	printf(" ]\n");
+	return true;
 }
 
-void printwire_u8_array(const char *fieldname, const u8 **cursor, size_t *plen, size_t len)
+bool printwire_u8_array(const char *fieldname, const u8 **cursor, size_t *plen, size_t len)
 {
-	if (streq(fieldname, "node_announcement.alias")) {
-		printwire_alias(cursor, plen, len);
-		return;
-	}
-	if (streq(fieldname, "node_announcement.addresses")) {
-		printwire_addresses(cursor, plen, len);
-		return;
-	}
-	if (strends(fieldname, ".encoded_short_ids")) {
-		printwire_encoded_short_ids(cursor, plen, len);
-		return;
-	}
+	if (streq(fieldname, "node_announcement.alias"))
+		return printwire_utf8_array(fieldname, cursor, plen, len);
+
+	if (streq(fieldname, "node_announcement.addresses"))
+		return printwire_addresses(cursor, plen, len);
+
+	if (strends(fieldname, ".encoded_short_ids"))
+		return printwire_encoded_short_ids(cursor, plen, len);
 
 	printf("[");
 	if (!print_hexstring(cursor, plen, len))
-		return;
+		return false;
 	printf("]\n");
+	return true;
 }
 
 static const struct tlv_print_record_type *
@@ -171,7 +243,7 @@ find_print_record_type(u64 type,
 	return NULL;
 }
 
-void printwire_tlvs(const char *fieldname, const u8 **cursor, size_t *plen,
+bool printwire_tlvs(const char *fieldname, const u8 **cursor, size_t *plen,
 		    const struct tlv_print_record_type types[],
 		    size_t num_types)
 {
@@ -203,32 +275,58 @@ void printwire_tlvs(const char *fieldname, const u8 **cursor, size_t *plen,
 			printf("**TYPE #%"PRIu64" UNKNOWN for TLV %s**\n", type, fieldname);
 		*plen -= length;
 	}
-	return;
+	return true;
 
 fail:
 	printf("**TRUNCATED TLV %s**\n", fieldname);
+	return false;
 }
 
 #define PRINTWIRE_TYPE_TO_STRING(T, N)					\
-	void printwire_##N(const char *fieldname, const T *v)		\
+	bool printwire_##N(const char *fieldname, const u8 **cursor,	\
+			   size_t *plen)				\
 	{								\
-		const char *s = type_to_string(NULL, T, v);		\
+		T v;							\
+		fromwire_##N(cursor, plen, &v);				\
+		if (!*cursor) {						\
+			printf("**TRUNCATED " stringify(N) "\n");	\
+			return false;					\
+		}							\
+		const char *s = type_to_string(NULL, T, &v);		\
 		printf("%s\n", s);					\
 		tal_free(s);						\
+		return true;						\
+	}
+
+#define PRINTWIRE_ASSIGNABLE_STRUCT_TO_STRING(N)			\
+	bool printwire_##N(const char *fieldname, const u8 **cursor,	\
+			   size_t *plen)				\
+	{								\
+		struct N v = fromwire_##N(cursor, plen);			\
+		if (!*cursor) {						\
+			printf("**TRUNCATED " stringify(N) "\n");	\
+			return false;					\
+		}							\
+		const char *s = type_to_string(NULL, struct N, &v);	\
+		printf("%s\n", s);					\
+		tal_free(s);						\
+		return true;						\
 	}
 
 #define PRINTWIRE_STRUCT_TYPE_TO_STRING(T) \
 	PRINTWIRE_TYPE_TO_STRING(struct T, T)
 
-PRINTWIRE_STRUCT_TYPE_TO_STRING(bitcoin_blkid);
-PRINTWIRE_STRUCT_TYPE_TO_STRING(bitcoin_txid);
-PRINTWIRE_STRUCT_TYPE_TO_STRING(channel_id);
-PRINTWIRE_STRUCT_TYPE_TO_STRING(node_id);
-PRINTWIRE_STRUCT_TYPE_TO_STRING(preimage);
-PRINTWIRE_STRUCT_TYPE_TO_STRING(pubkey);
-PRINTWIRE_STRUCT_TYPE_TO_STRING(sha256);
-PRINTWIRE_STRUCT_TYPE_TO_STRING(secret);
-PRINTWIRE_STRUCT_TYPE_TO_STRING(short_channel_id);
-PRINTWIRE_STRUCT_TYPE_TO_STRING(amount_sat);
-PRINTWIRE_STRUCT_TYPE_TO_STRING(amount_msat);
-PRINTWIRE_TYPE_TO_STRING(secp256k1_ecdsa_signature, secp256k1_ecdsa_signature);
+PRINTWIRE_STRUCT_TYPE_TO_STRING(bip340sig)
+PRINTWIRE_STRUCT_TYPE_TO_STRING(bitcoin_blkid)
+PRINTWIRE_STRUCT_TYPE_TO_STRING(bitcoin_txid)
+PRINTWIRE_STRUCT_TYPE_TO_STRING(channel_id)
+PRINTWIRE_STRUCT_TYPE_TO_STRING(node_id)
+PRINTWIRE_STRUCT_TYPE_TO_STRING(point32)
+PRINTWIRE_STRUCT_TYPE_TO_STRING(preimage)
+PRINTWIRE_STRUCT_TYPE_TO_STRING(pubkey)
+PRINTWIRE_STRUCT_TYPE_TO_STRING(sha256)
+PRINTWIRE_STRUCT_TYPE_TO_STRING(secret)
+PRINTWIRE_STRUCT_TYPE_TO_STRING(short_channel_id)
+PRINTWIRE_ASSIGNABLE_STRUCT_TO_STRING(amount_sat)
+PRINTWIRE_ASSIGNABLE_STRUCT_TO_STRING(amount_msat)
+PRINTWIRE_TYPE_TO_STRING(secp256k1_ecdsa_signature, secp256k1_ecdsa_signature)

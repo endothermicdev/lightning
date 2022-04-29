@@ -1,5 +1,4 @@
 from fixtures import *  # noqa: F401,F403
-from flaky import flaky
 from pyln.client import RpcError, Millisatoshi
 from shutil import copyfile
 from pyln.testing.utils import SLOW_MACHINE
@@ -108,12 +107,12 @@ def test_closing_simple(node_factory, bitcoind, chainparams):
     expected_1 = {
         '0': [('wallet', ['deposit'], ['withdrawal'], 'A')],
         'A': [('wallet', ['deposit'], None, None), ('cid1', ['channel_open', 'opener'], ['channel_close'], 'B')],
-        'B': [('wallet', ['deposit'], None, None)],
+        'B': [('wallet', ['deposit'], None, None), ('external', ['to_them'], None, None)],
     }
 
     expected_2 = {
         'A': [('cid1', ['channel_open'], ['channel_close'], 'B')],
-        'B': [('wallet', ['deposit'], None, None)],
+        'B': [('wallet', ['deposit'], None, None), ('external', ['to_them'], None, None)],
     }
     tags = check_utxos_channel(l1, [channel_id], expected_1)
     check_utxos_channel(l2, [channel_id], expected_2, tags)
@@ -185,68 +184,6 @@ def test_closing_id(node_factory):
     l2.rpc.close(pid)
     wait_for(lambda: not only_one(l1.rpc.listpeers(l2.info['id'])['peers'])['connected'])
     wait_for(lambda: not only_one(l2.rpc.listpeers(l1.info['id'])['peers'])['connected'])
-
-
-@pytest.mark.slow_test
-def test_closing_torture(node_factory, executor, bitcoind):
-    # We set up a fully-connected mesh of N nodes, then try
-    # closing them all at once.
-    amount = 10**6
-
-    num_nodes = 10  # => 45 channels (36 seconds on my laptop)
-    if node_factory.valgrind:
-        num_nodes -= 4  # => 15 (135 seconds)
-
-    nodes = node_factory.get_nodes(num_nodes)
-
-    # Make sure bitcoind has plenty of utxos
-    bitcoind.generate_block(num_nodes)
-
-    # Give them all plenty of UTXOs, make sure they see them
-    for i in range(len(nodes)):
-        for j in range(i + 1, len(nodes)):
-            addr = nodes[i].rpc.newaddr()['bech32']
-            bitcoind.rpc.sendtoaddress(addr, (amount + 1000000) / 10**8)
-    bitcoind.generate_block(1)
-    sync_blockheight(bitcoind, nodes)
-
-    txs = []
-    for i in range(len(nodes)):
-        for j in range(i + 1, len(nodes)):
-            nodes[i].rpc.connect(nodes[j].info['id'], 'localhost', nodes[j].port)
-            txs.append(nodes[i].rpc.fundchannel(nodes[j].info['id'], amount)['txid'])
-
-    # Make sure they're all in, then lock them in.
-    bitcoind.generate_block(1, wait_for_mempool=txs)
-
-    # Wait for them all to be CHANNELD_NORMAL
-    for n in nodes:
-        wait_for(lambda: all(p['channels'][0]['state'] == 'CHANNELD_NORMAL' for p in n.rpc.listpeers()['peers']))
-
-    # Start closers: can take a long time under valgrind!
-    futures = []
-    for i in range(len(nodes)):
-        for j in range(i + 1, len(nodes)):
-            futures.append(executor.submit(nodes[i].rpc.close, nodes[j].info['id']))
-            futures.append(executor.submit(nodes[j].rpc.close, nodes[i].info['id']))
-
-    # Wait for close to finish
-    close_txs = set()
-    for f in futures:
-        # If one side completes closing, we'll get an error here 'Peer has no active channel'
-        try:
-            close_txs.add(f.result(TIMEOUT)['txid'])
-        except RpcError as err:
-            assert err.error['message'] == 'Peer has no active channel'
-
-    # Should have one close for each open.
-    assert len(close_txs) == len(txs)
-    # Get closes confirmed
-    bitcoind.generate_block(100, wait_for_mempool=list(close_txs))
-
-    # And make sure they hangup.
-    for n in nodes:
-        wait_for(lambda: n.rpc.listpeers()['peers'] == [])
 
 
 @unittest.skipIf(TEST_NETWORK != 'regtest', 'FIXME: broken under elements')
@@ -462,7 +399,11 @@ def closing_negotiation_step(node_factory, bitcoind, chainparams, opts):
     wait_for(get_mempool_when_size_1)
 
     close_tx_id = mempool_tx_ids[0]
-    fee_mempool = round(mempool[close_tx_id]['fee'] * 10**8)
+    # v22.99.0-8fe6f5a6fbcd at least doesn't have 'fee', it has 'fees'.
+    if 'fees' in mempool[close_tx_id]:
+        fee_mempool = round(mempool[close_tx_id]['fees']['base'] * 10**8)
+    else:
+        fee_mempool = round(mempool[close_tx_id]['fee'] * 10**8)
 
     assert opts['expected_close_fee'] == fee_mempool
 
@@ -606,7 +547,7 @@ def test_penalty_inhtlc(node_factory, bitcoind, executor, chainparams):
 
     bitcoind.generate_block(100)
 
-    sync_blockheight(bitcoind, [l2])
+    sync_blockheight(bitcoind, [l1, l2])
     wait_for(lambda: len(l2.rpc.listpeers()['peers']) == 0)
 
     # Do one last pass over the logs to extract the reactions l2 sent
@@ -735,7 +676,7 @@ def test_penalty_outhtlc(node_factory, bitcoind, executor, chainparams):
     # 100 blocks later, all resolved.
     bitcoind.generate_block(100)
 
-    sync_blockheight(bitcoind, [l2])
+    sync_blockheight(bitcoind, [l1, l2])
     wait_for(lambda: len(l2.rpc.listpeers()['peers']) == 0)
 
     # Do one last pass over the logs to extract the reactions l2 sent
@@ -769,7 +710,7 @@ def test_penalty_outhtlc(node_factory, bitcoind, executor, chainparams):
     # l2 sweeps all of l1's closing outputs
     expected_2 = {
         'A': [('cid1', ['channel_open'], ['channel_close'], 'B')],
-        'B': [('wallet', ['channel_close'], None, None), ('cid1', ['penalty'], ['to_wallet'], 'C'), ('cid1', ['penalty'], ['to_wallet'], 'D')],
+        'B': [('wallet', ['deposit'], None, None), ('cid1', ['penalty'], ['to_wallet'], 'C'), ('cid1', ['penalty'], ['to_wallet'], 'D')],
         'C': [('wallet', ['deposit'], None, None)],
         'D': [('wallet', ['deposit'], None, None)]
     }
@@ -795,9 +736,9 @@ def test_channel_lease_falls_behind(node_factory, bitcoind):
     their blockheight, the lessor fails the channel
     '''
     opts = [{'funder-policy': 'match', 'funder-policy-mod': 100,
-             'lease-fee-base-msat': '100sat', 'lease-fee-basis': 100},
+             'lease-fee-base-sat': '100sat', 'lease-fee-basis': 100},
             {'funder-policy': 'match', 'funder-policy-mod': 100,
-             'lease-fee-base-msat': '100sat', 'lease-fee-basis': 100}]
+             'lease-fee-base-sat': '100sat', 'lease-fee-basis': 100}]
     l1, l2, = node_factory.get_nodes(2, opts=opts)
     amount = 500000
     feerate = 2000
@@ -834,7 +775,7 @@ def test_channel_lease_post_expiry(node_factory, bitcoind, chainparams):
 
     coin_mvt_plugin = os.path.join(os.getcwd(), 'tests/plugins/coin_movements.py')
     opts = {'funder-policy': 'match', 'funder-policy-mod': 100,
-            'lease-fee-base-msat': '100sat', 'lease-fee-basis': 100,
+            'lease-fee-base-sat': '100sat', 'lease-fee-basis': 100,
             'may_reconnect': True, 'plugin': coin_mvt_plugin}
 
     l1, l2, = node_factory.get_nodes(2, opts=opts)
@@ -942,7 +883,7 @@ def test_channel_lease_unilat_closes(node_factory, bitcoind):
     l2-l3: l2 leases funds from l3; l3 goes to chain unilaterally
     '''
     opts = {'funder-policy': 'match', 'funder-policy-mod': 100,
-            'lease-fee-base-msat': '100sat', 'lease-fee-basis': 100,
+            'lease-fee-base-sat': '100sat', 'lease-fee-basis': 100,
             'funder-lease-requests-only': False}
 
     l1, l2, l3 = node_factory.get_nodes(3, opts=opts)
@@ -1046,11 +987,11 @@ def test_channel_lease_lessor_cheat(node_factory, bitcoind, chainparams):
     '''
     balance_snaps = os.path.join(os.getcwd(), 'tests/plugins/balance_snaps.py')
     opts = [{'funder-policy': 'match', 'funder-policy-mod': 100,
-             'lease-fee-base-msat': '100sat', 'lease-fee-basis': 100,
+             'lease-fee-base-sat': '100sat', 'lease-fee-basis': 100,
              'may_reconnect': True, 'allow_warning': True,
              'plugin': balance_snaps},
             {'funder-policy': 'match', 'funder-policy-mod': 100,
-             'lease-fee-base-msat': '100sat', 'lease-fee-basis': 100,
+             'lease-fee-base-sat': '100sat', 'lease-fee-basis': 100,
              'may_reconnect': True, 'allow_broken_log': True,
              'plugin': balance_snaps}]
     l1, l2, = node_factory.get_nodes(2, opts=opts)
@@ -1121,10 +1062,10 @@ def test_channel_lease_lessee_cheat(node_factory, bitcoind, chainparams):
     Check that lessor can recover funds if lessee cheats
     '''
     opts = [{'funder-policy': 'match', 'funder-policy-mod': 100,
-             'lease-fee-base-msat': '100sat', 'lease-fee-basis': 100,
+             'lease-fee-base-sat': '100sat', 'lease-fee-basis': 100,
              'may_reconnect': True, 'allow_broken_log': True},
             {'funder-policy': 'match', 'funder-policy-mod': 100,
-             'lease-fee-base-msat': '100sat', 'lease-fee-basis': 100,
+             'lease-fee-base-sat': '100sat', 'lease-fee-basis': 100,
              'may_reconnect': True}]
     l1, l2, = node_factory.get_nodes(2, opts=opts)
     amount = 500000
@@ -1326,7 +1267,7 @@ def test_penalty_htlc_tx_fulfill(node_factory, bitcoind, chainparams):
 
     expected_3 = {
         'A': [('cid1', ['channel_open'], ['channel_close'], 'B')],
-        'B': [('wallet', ['channel_close'], None, None), ('external', ['htlc_fulfill'], ['htlc_fulfill'], 'C'), ('cid1', ['penalty'], ['to_wallet'], 'E')],
+        'B': [('wallet', ['deposit'], None, None), ('external', ['htlc_fulfill'], ['htlc_fulfill'], 'C'), ('cid1', ['penalty'], ['to_wallet'], 'E')],
         'C': [('cid1', ['penalty'], ['to_wallet'], 'D')],
         'D': [('wallet', ['deposit'], None, None)],
         'E': [('wallet', ['deposit'], None, None)]
@@ -1546,7 +1487,7 @@ def test_penalty_htlc_tx_timeout(node_factory, bitcoind, chainparams):
 
     expected_3 = {
         'A': [('cid1', ['channel_open'], ['channel_close'], 'B')],
-        'B': [('wallet', ['channel_close'], None, None), ('external', ['htlc_fulfill'], ['htlc_fulfill'], 'E'), ('external', ['stolen'], None, None), ('external', ['htlc_timeout'], ['htlc_timeout'], 'C')],
+        'B': [('wallet', ['deposit'], None, None), ('external', ['htlc_fulfill'], ['htlc_fulfill'], 'E'), ('external', ['stolen'], None, None), ('external', ['htlc_timeout'], ['htlc_timeout'], 'C')],
         'C': [('cid1', ['penalty'], ['to_wallet'], 'D')],
         'D': [('wallet', ['deposit'], None, None)],
         'E': [('external', ['stolen'], None, None)]
@@ -2243,7 +2184,7 @@ def test_onchain_middleman_simple(node_factory, bitcoind):
 
     expected_1 = {
         'A': [('cid1', ['channel_open'], ['channel_close'], 'B')],
-        'B': [('external', ['to_them'], None, None), ('external', ['htlc_fulfill'], ['htlc_fulfill'], 'D'), ('wallet', ['channel_close'], None, None)]
+        'B': [('external', ['to_them'], None, None), ('external', ['htlc_fulfill'], ['htlc_fulfill'], 'D'), ('wallet', ['deposit'], None, None)]
     }
 
     if anchor_expected():
@@ -2355,7 +2296,7 @@ def test_onchain_middleman_their_unilateral_in(node_factory, bitcoind):
         # in the next channel open
         'A': [('wallet', ['deposit'], ((['withdrawal'], 'D'), (None, None))), ('cid1', ['channel_open', 'opener'], ['channel_close'], 'B')],
         '1': [('wallet', ['deposit'], ['withdrawal'], 'D')],
-        'B': [('external', ['to_them'], None, None), ('wallet', ['channel_close'], None, None), ('cid1', ['htlc_fulfill'], ['to_wallet'], 'C')],
+        'B': [('external', ['to_them'], None, None), ('wallet', ['deposit'], None, None), ('cid1', ['htlc_fulfill'], ['to_wallet'], 'C')],
         'C': [('wallet', ['deposit'], None, None)],
         'D': [('wallet', ['deposit'], None, None), ('cid2', ['channel_open', 'opener'], None, None)]
     }
@@ -2447,7 +2388,7 @@ def test_onchain_their_unilateral_out(node_factory, bitcoind):
         # This is ugly, but this wallet deposit is either unspent or used
         # in the next channel open
         'A': [('wallet', ['deposit'], None, None), ('cid1', ['channel_open', 'opener'], ['channel_close'], 'B')],
-        'B': [('wallet', ['channel_close'], None, None), ('cid1', ['htlc_timeout'], ['to_wallet'], 'C')],
+        'B': [('wallet', ['deposit'], None, None), ('cid1', ['htlc_timeout'], ['to_wallet'], 'C')],
         'C': [('wallet', ['deposit'], None, None)],
     }
 
@@ -2650,7 +2591,7 @@ def test_onchain_all_dust(node_factory, bitcoind, executor):
     expected_1 = {
         '0': [('wallet', ['deposit'], ['withdrawal'], 'A')],
         'A': [('wallet', ['deposit'], None, None), ('cid1', ['channel_open', 'opener'], ['channel_close'], 'B')],
-        'B': [('wallet', ['channel_close'], None, None), ('cid1', ['htlc_timeout'], ['ignored'], 'C')],
+        'B': [('wallet', ['deposit'], None, None), ('cid1', ['htlc_timeout'], ['ignored'], 'C')],
         'C': [('wallet', ['deposit'], None, None)],
     }
 
@@ -3244,30 +3185,27 @@ def test_shutdown(node_factory):
     l1.rpc.stop()
 
 
-@flaky
 @pytest.mark.developer("needs to set upfront_shutdown_script")
 def test_option_upfront_shutdown_script(node_factory, bitcoind, executor):
-    # There's a workaround in channeld, that it treats incoming errors
-    # before both sides are locked in as warnings; this happens in
-    # this test, so l1 reports the error as a warning!
     l1 = node_factory.get_node(start=False, allow_warning=True)
     # Insist on upfront script we're not going to match.
-    l1.daemon.env["DEV_OPENINGD_UPFRONT_SHUTDOWN_SCRIPT"] = "76a91404b61f7dc1ea0dc99424464cc4064dc564d91e8988ac"
+    # '0014' + l1.rpc.call('dev-listaddrs', [10])['addresses'][-1]['bech32_redeemscript']
+    l1.daemon.env["DEV_OPENINGD_UPFRONT_SHUTDOWN_SCRIPT"] = "00143d43d226bcc27019ade52d7a3dc52a7ac1be28b8"
     l1.start()
 
-    l2 = node_factory.get_node()
+    l2 = node_factory.get_node(allow_warning=True)
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
     l1.fundchannel(l2, 1000000, False)
 
-    # This will block, as l12 will send an error but l2 will retry.
+    # This will block, as l1 will send a warning but l2 will retry.
     fut = executor.submit(l1.rpc.close, l2.info['id'])
 
-    # l2 will close unilaterally when it dislikes shutdown script.
-    l1.daemon.wait_for_log(r'scriptpubkey .* is not as agreed upfront \(76a91404b61f7dc1ea0dc99424464cc4064dc564d91e8988ac\)')
+    # l2 will send a warning when it dislikes shutdown script.
+    l1.daemon.wait_for_log(r'WARNING.*scriptpubkey .* is not as agreed upfront \(00143d43d226bcc27019ade52d7a3dc52a7ac1be28b8\)')
 
-    # Clear channel.
-    wait_for(lambda: len(bitcoind.rpc.getrawmempool()) != 0)
-    bitcoind.generate_block(1)
+    # Close from l2's side and clear channel.
+    l2.rpc.close(l1.info['id'], unilateraltimeout=1)
+    bitcoind.generate_block(1, wait_for_mempool=1)
     fut.result(TIMEOUT)
     wait_for(lambda: [c['state'] for c in only_one(l1.rpc.listpeers()['peers'])['channels']] == ['ONCHAIN'])
     wait_for(lambda: [c['state'] for c in only_one(l2.rpc.listpeers()['peers'])['channels']] == ['ONCHAIN'])
@@ -3276,14 +3214,12 @@ def test_option_upfront_shutdown_script(node_factory, bitcoind, executor):
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
     l1.fundchannel(l2, 1000000, False)
 
-    l2.rpc.close(l1.info['id'])
+    l2.rpc.close(l1.info['id'], unilateraltimeout=5)
 
-    # l2 will close unilaterally when it dislikes shutdown script.
-    l1.daemon.wait_for_log(r'scriptpubkey .* is not as agreed upfront \(76a91404b61f7dc1ea0dc99424464cc4064dc564d91e8988ac\)')
+    # l2 will send warning unilaterally when it dislikes shutdown script.
+    l1.daemon.wait_for_log(r'WARNING.*scriptpubkey .* is not as agreed upfront \(00143d43d226bcc27019ade52d7a3dc52a7ac1be28b8\)')
 
-    # Clear channel.
-    wait_for(lambda: len(bitcoind.rpc.getrawmempool()) != 0)
-    bitcoind.generate_block(1)
+    bitcoind.generate_block(1, wait_for_mempool=1)
     wait_for(lambda: [c['state'] for c in only_one(l1.rpc.listpeers()['peers'])['channels']] == ['ONCHAIN', 'ONCHAIN'])
     wait_for(lambda: [c['state'] for c in only_one(l2.rpc.listpeers()['peers'])['channels']] == ['ONCHAIN', 'ONCHAIN'])
 
@@ -3439,6 +3375,7 @@ def test_closing_higherfee(node_factory, bitcoind, executor):
     wait_for(lambda: only_one(l2.rpc.listpeers()['peers'])['channels'][0]['state'] == 'CLOSINGD_COMPLETE')
 
 
+@unittest.skipIf(True, "Test is extremely flaky")
 @pytest.mark.developer("needs dev_disconnect")
 def test_htlc_rexmit_while_closing(node_factory, executor):
     """Retranmitting an HTLC revocation while shutting down should work"""
@@ -3505,7 +3442,8 @@ def test_you_forgot_closed_channel(node_factory, executor):
     assert only_one(only_one(l1.rpc.listpeers()['peers'])['channels'])['state'] == 'CLOSINGD_SIGEXCHANGE'
 
     # l1 reconnects, it should succeed.
-    l1.rpc.disconnect(l2.info['id'], force=True)
+    if only_one(l1.rpc.listpeers(l2.info['id'])['peers'])['connected']:
+        l1.rpc.disconnect(l2.info['id'], force=True)
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
     fut.result(TIMEOUT)
 
@@ -3687,3 +3625,70 @@ def test_close_weight_estimate(node_factory, bitcoind):
     signed_weight = int(bitcoind.rpc.decoderawtransaction(tx)['weight'])
     assert signed_weight <= actual_weight
     assert signed_weight >= actual_weight - 2
+
+
+@pytest.mark.developer("needs dev_disconnect")
+def test_onchain_close_upstream(node_factory, bitcoind):
+    """https://github.com/ElementsProject/lightning/issues/4649
+
+We send an HTLC, and peer unilaterally closes: do we close upstream?
+    """
+    l1, l2, l3 = node_factory.line_graph(3, wait_for_announce=True,
+                                         opts=[{'feerates': (7500, 7500, 7500, 7500)},
+                                               # Second commitment_signed is to l3
+                                               {'disconnect': ['xWIRE_COMMITMENT_SIGNED*2'],
+                                                # We want htlc killed by timeout, not a close due to ping timer.
+                                                'dev-no-ping-timer': None},
+                                               {'dev-no-ping-timer': None}])
+
+    ph1 = l3.rpc.invoice(msatoshi="10000sat", label='x1', description='desc2')['payment_hash']
+    ph2 = l3.rpc.invoice(msatoshi="10000sat", label='x2', description='desc2')['payment_hash']
+
+    route = l1.rpc.getroute(l3.info['id'], 1, 1)['route']
+
+    # Start a payment
+    l1.rpc.sendpay(route, ph1)
+
+    # l3 sends commitment_signed, then silence.
+    l2.daemon.wait_for_log('dev_disconnect: xWIRE_COMMITMENT_SIGNED')
+
+    # Send another payment, this times out.
+    l1.rpc.sendpay(route, ph2)
+
+    # This can take 30 seconds...
+    l2.daemon.wait_for_log('Adding HTLC 1 too slow: killing connection',
+                           timeout=TIMEOUT + 30)
+    l2.daemon.wait_for_log('Failing HTLC 1 due to peer death')
+
+    with pytest.raises(RpcError, match=r'WIRE_TEMPORARY_CHANNEL_FAILURE \(reply from remote\)'):
+        l1.rpc.waitsendpay(ph2, timeout=TIMEOUT)
+
+    # l3 closes unilaterally.
+    wait_for(lambda: only_one(l3.rpc.listpeers(l2.info['id'])['peers'])['connected'] is False)
+    l3.rpc.close(l2.info['id'], 1)
+
+    l3.daemon.wait_for_log('sendrawtransaction')
+
+    # Mine it
+    bitcoind.generate_block(1, wait_for_mempool=1)
+
+    # l2 tells onchaind to look for missing HTLC.
+    l2.daemon.wait_for_logs(['Their unilateral tx',
+                             r'We want to know if htlc 0 is missing \(later\)'])
+
+#    # l1 disconnects now
+#    l1.rpc.disconnect(l2.info['id'], force=True)
+#    # Restart now, and reconnect
+#    l2.restart()
+#    l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
+
+    # After three blocks, onchaind says: definitely missing htlc
+    bitcoind.generate_block(3)
+    l2.daemon.wait_for_log('Sending 1 missing htlc messages')
+
+    # l2 will tell l1 it has failed the htlc.
+#    l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
+    l1.daemon.wait_for_log('peer_in WIRE_UPDATE_FAIL_HTLC')
+
+    with pytest.raises(RpcError, match=r'WIRE_PERMANENT_CHANNEL_FAILURE \(reply from remote\)'):
+        l1.rpc.waitsendpay(ph1, timeout=TIMEOUT)

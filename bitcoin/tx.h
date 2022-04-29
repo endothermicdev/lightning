@@ -97,7 +97,7 @@ struct wally_tx_output *wally_tx_output(const tal_t *ctx,
 
 /* Add one output to tx. */
 int bitcoin_tx_add_output(struct bitcoin_tx *tx, const u8 *script,
-			  u8 *wscript,
+			  const u8 *wscript,
 			  struct amount_sat amount);
 
 /* Set the locktime for a transaction */
@@ -115,7 +115,7 @@ int bitcoin_tx_add_input(struct bitcoin_tx *tx,
 			 struct amount_sat amount, const u8 *scriptPubkey,
 			 const u8 *input_wscript);
 
-/* This helps is useful because wally uses a raw byte array for txids */
+/* This is useful because wally uses a raw byte array for txids */
 bool wally_tx_input_spends(const struct wally_tx_input *input,
 			   const struct bitcoin_outpoint *outpoint);
 

@@ -5,9 +5,11 @@
 #include <ccan/crypto/siphash24/siphash24.h>
 #include <ccan/htable/htable_type.h>
 #include <ccan/timer/timer.h>
+#include <common/channel_id.h>
 #include <common/crypto_state.h>
 #include <common/node_id.h>
 #include <common/pseudorand.h>
+#include <common/wireaddr.h>
 
 struct io_conn;
 struct connecting;
@@ -51,23 +53,27 @@ struct peer {
 	/* Connection to the peer */
 	struct io_conn *to_peer;
 
-	/* Connection to the subdaemon */
-	struct io_conn *to_subd;
+	/* Connections to the subdaemons */
+	struct subd **subds;
 
 	/* Final message to send to peer (and hangup) */
 	u8 *final_msg;
 
-	/* Set when we want to close. */
-	bool told_to_close;
+	/* Set once lightningd says it's OK to close (subd tells it
+	 * it's done). */
+	bool ready_to_die;
+
+	/* Has this ever been active?  (i.e. ever had a subd attached?) */
+	bool active;
 
 	/* When socket has Nagle overridden */
 	bool urgent;
 
-	/* Input buffers. */
-	u8 *subd_in, *peer_in;
+	/* Input buffer. */
+	u8 *peer_in;
 
-	/* Output buffers. */
-	struct msg_queue *subd_outq, *peer_outq;
+	/* Output buffer. */
+	struct msg_queue *peer_outq;
 
 	/* Peer sent buffer (for freeing after sending) */
 	const u8 *sent_to_peer;
@@ -164,7 +170,7 @@ struct daemon {
 	struct sockaddr *broken_resolver_response;
 
 	/* File descriptors to listen on once we're activated. */
-	struct listen_fd *listen_fds;
+	const struct listen_fd **listen_fds;
 
 	/* Allow to define the default behavior of tor services calls*/
 	bool use_v3_autotor;
@@ -182,9 +188,16 @@ struct daemon {
 	int gossip_store_fd;
 	size_t gossip_store_end;
 
+	/* We only announce websocket addresses if !deprecated_apis */
+	bool announce_websocket;
+
 #if DEVELOPER
 	/* Hack to speed up gossip timer */
 	bool dev_fast_gossip;
+	/* Hack to avoid ping timeouts */
+	bool dev_no_ping_timer;
+	/* Hack to no longer send gossip */
+	bool dev_suppress_gossip;
 #endif
 };
 
@@ -199,6 +212,7 @@ struct io_plan *peer_connected(struct io_conn *conn,
 			       struct daemon *daemon,
 			       const struct node_id *id,
 			       const struct wireaddr_internal *addr,
+			       const struct wireaddr *remote_addr,
 			       struct crypto_state *cs,
 			       const u8 *their_features TAKES,
 			       bool incoming);

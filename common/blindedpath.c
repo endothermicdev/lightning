@@ -122,7 +122,7 @@ static u8 *enctlv_from_obs2_encmsg(const tal_t *ctx,
 				   struct pubkey *node_alias)
 {
 	u8 *encmsg_raw = tal_arr(NULL, u8, 0);
-	towire_obs2_encmsg_tlvs(&encmsg_raw, encmsg);
+	towire_tlv_obs2_encmsg_tlvs(&encmsg_raw, encmsg);
 	return enctlv_from_encmsg_raw(ctx, blinding, node, take(encmsg_raw),
 				      next_blinding, node_alias);
 }
@@ -135,7 +135,7 @@ static u8 *enctlv_from_encmsg(const tal_t *ctx,
 			      struct pubkey *node_alias)
 {
 	u8 *encmsg_raw = tal_arr(NULL, u8, 0);
-	towire_encrypted_data_tlv(&encmsg_raw, encmsg);
+	towire_tlv_encrypted_data_tlv(&encmsg_raw, encmsg);
 	return enctlv_from_encmsg_raw(ctx, blinding, node, take(encmsg_raw),
 				      next_blinding, node_alias);
 }
@@ -201,7 +201,6 @@ static struct tlv_obs2_encmsg_tlvs *decrypt_obs2_encmsg(const tal_t *ctx,
 							const struct secret *ss,
 							const u8 *enctlv)
 {
-	struct tlv_obs2_encmsg_tlvs *encmsg;
 	const u8 *cursor = decrypt_encmsg_raw(tmpctx, blinding, ss, enctlv);
 	size_t maxlen = tal_bytelen(cursor);
 
@@ -210,12 +209,7 @@ static struct tlv_obs2_encmsg_tlvs *decrypt_obs2_encmsg(const tal_t *ctx,
 	 * - if the `enctlv` is not a valid TLV...
 	 *   - MUST drop the message.
 	 */
-	encmsg = tlv_obs2_encmsg_tlvs_new(ctx);
-	if (!fromwire_obs2_encmsg_tlvs(&cursor, &maxlen, encmsg)
-	    || !tlv_fields_valid(encmsg->fields, NULL, NULL))
-		return tal_free(encmsg);
-
-	return encmsg;
+	return fromwire_tlv_obs2_encmsg_tlvs(ctx, &cursor, &maxlen);
 }
 
 static struct tlv_encrypted_data_tlv *decrypt_encmsg(const tal_t *ctx,
@@ -223,7 +217,6 @@ static struct tlv_encrypted_data_tlv *decrypt_encmsg(const tal_t *ctx,
 						     const struct secret *ss,
 						     const u8 *enctlv)
 {
-	struct tlv_encrypted_data_tlv *encmsg;
 	const u8 *cursor = decrypt_encmsg_raw(tmpctx, blinding, ss, enctlv);
 	size_t maxlen = tal_bytelen(cursor);
 
@@ -232,12 +225,7 @@ static struct tlv_encrypted_data_tlv *decrypt_encmsg(const tal_t *ctx,
 	 * - if the `enctlv` is not a valid TLV...
 	 *   - MUST drop the message.
 	 */
-	encmsg = tlv_encrypted_data_tlv_new(ctx);
-	if (!fromwire_encrypted_data_tlv(&cursor, &maxlen, encmsg)
-	    || !tlv_fields_valid(encmsg->fields, NULL, NULL))
-		return tal_free(encmsg);
-
-	return encmsg;
+	return fromwire_tlv_encrypted_data_tlv(ctx, &cursor, &maxlen);
 }
 
 bool decrypt_enctlv(const struct pubkey *blinding,

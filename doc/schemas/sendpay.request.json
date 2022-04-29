@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "route",
+    "payment_hash"
+  ],
+  "properties": {
+    "route": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "msatoshi",
+          "id",
+          "delay",
+          "channel"
+        ],
+        "properties": {
+          "msatoshi": {
+            "type": "msat"
+          },
+          "id": {
+            "type": "pubkey"
+          },
+          "delay": {
+            "type": "u16"
+          },
+          "channel": {
+            "type": "short_channel_id"
+          }
+        }
+      }
+    },
+    "payment_hash": {
+      "type": "hash"
+    },
+    "label": {
+      "type": "string"
+    },
+    "msatoshi": {
+      "type": "msat"
+    },
+    "bolt11": {
+      "type": "string"
+    },
+    "payment_secret": {
+      "type": "secret"
+    },
+    "partid": {
+      "type": "u16"
+    },
+    "localofferid": {
+      "type": "hex"
+    },
+    "groupid": {
+      "type": "u64"
+    }
+  }
+}

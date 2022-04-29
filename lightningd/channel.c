@@ -5,6 +5,7 @@
 #include <common/fee_states.h>
 #include <common/json_command.h>
 #include <common/json_helpers.h>
+#include <common/type_to_string.h>
 #include <common/wire_error.h>
 #include <connectd/connectd_wiregen.h>
 #include <errno.h>
@@ -19,11 +20,6 @@
 #include <wallet/txfilter.h>
 #include <wire/wire_sync.h>
 
-static bool connects_to_peer(struct subd *owner)
-{
-	return owner && owner->talks_to_peer;
-}
-
 void channel_set_owner(struct channel *channel, struct subd *owner)
 {
 	struct subd *old_owner = channel->owner;
@@ -31,23 +27,10 @@ void channel_set_owner(struct channel *channel, struct subd *owner)
 
 	if (old_owner) {
 		subd_release_channel(old_owner, channel);
-		if (channel->connected && !connects_to_peer(owner)) {
-			/* If shutting down, connectd no longer exists,
-			 * and we should not transfer peer to connectd.
-			 * Only transfer to connectd if connectd is
-			 * there to be transferred to.
-			 */
-			if (channel->peer->ld->connectd) {
-				u8 *msg;
-				msg = towire_connectd_peer_disconnected(
-						NULL,
-						&channel->peer->id);
-				subd_send_msg(channel->peer->ld->connectd,
-					      take(msg));
-			}
-		}
+		if (channel->connected)
+			maybe_disconnect_peer(channel->peer->ld, channel->peer);
 	}
-	channel->connected = connects_to_peer(owner);
+	channel->connected = (owner && owner->talks_to_peer);
 }
 
 struct htlc_out *channel_has_htlc_out(struct channel *channel)
@@ -207,6 +190,7 @@ struct open_attempt *new_channel_open_attempt(struct channel *channel)
 	oa->our_upfront_shutdown_script = NULL;
 	oa->cmd = NULL;
 	oa->aborted = false;
+	oa->open_msg = NULL;
 
 	return oa;
 }
@@ -236,7 +220,6 @@ struct channel *new_unsaved_channel(struct peer *peer,
 			       "chan#%"PRIu64,
 			       channel->unsaved_dbid);
 
-	memset(&channel->cid, 0xFF, sizeof(channel->cid));
 	channel->our_config.id = 0;
 	channel->open_attempt = NULL;
 
@@ -306,6 +289,48 @@ struct channel *new_unsaved_channel(struct peer *peer,
 	return channel;
 }
 
+/*
+ * The maximum msat that this node could possibly accept for an htlc.
+ * It's the default htlc_maximum_msat in channel_updates, if none is
+ * explicitly set (and the cap on what can be set!).
+ *
+ * We advertize the maximum value possible, defined as the smaller
+ * of the remote's maximum in-flight HTLC or the total channel
+ * capacity the reserve we have to keep.
+ * FIXME: does this need fuzz?
+ */
+struct amount_msat htlc_max_possible_send(const struct channel *channel)
+{
+	struct amount_sat lower_bound;
+	struct amount_msat lower_bound_msat;
+
+	/* These shouldn't fail */
+	if (!amount_sat_sub(&lower_bound, channel->funding_sats,
+			    channel->channel_info.their_config.channel_reserve)) {
+		log_broken(channel->log, "%s: their reserve %s > funding %s!",
+			   __func__,
+			   type_to_string(tmpctx, struct amount_sat,
+					  &channel->funding_sats),
+			   type_to_string(tmpctx, struct amount_sat,
+					  &channel->channel_info.their_config.channel_reserve));
+		return AMOUNT_MSAT(0);
+	}
+
+	if (!amount_sat_to_msat(&lower_bound_msat, lower_bound)) {
+		log_broken(channel->log, "%s: impossible size channel %s!",
+			   __func__,
+			   type_to_string(tmpctx, struct amount_sat,
+					  &lower_bound));
+		return AMOUNT_MSAT(0);
+	}
+
+	if (amount_msat_less(channel->channel_info.their_config.max_htlc_value_in_flight,
+			     lower_bound_msat))
+		lower_bound_msat = channel->channel_info.their_config.max_htlc_value_in_flight;
+
+	return lower_bound_msat;
+}
+
 struct channel *new_channel(struct peer *peer, u64 dbid,
 			    /* NULL or stolen */
 			    struct wallet_shachain *their_shachain,
@@ -366,9 +391,12 @@ struct channel *new_channel(struct peer *peer, u64 dbid,
 			    u32 lease_expiry,
 			    secp256k1_ecdsa_signature *lease_commit_sig STEALS,
 			    u32 lease_chan_max_msat,
-			    u16 lease_chan_max_ppt)
+			    u16 lease_chan_max_ppt,
+			    struct amount_msat htlc_minimum_msat,
+			    struct amount_msat htlc_maximum_msat)
 {
 	struct channel *channel = tal(peer->ld, struct channel);
+	struct amount_msat htlc_min, htlc_max;
 
 	assert(dbid != 0);
 	channel->peer = peer;
@@ -464,6 +492,18 @@ struct channel *new_channel(struct peer *peer, u64 dbid,
 	channel->blockheight_states = dup_height_states(channel, height_states);
 	channel->channel_update = NULL;
 
+	/* DB migration, for example, sets min to 0, max to large: fixup */
+	htlc_min = channel->channel_info.their_config.htlc_minimum;
+	if (amount_msat_greater(htlc_min, htlc_minimum_msat))
+		channel->htlc_minimum_msat = htlc_min;
+	else
+		channel->htlc_minimum_msat = htlc_minimum_msat;
+	htlc_max = htlc_max_possible_send(channel);
+	if (amount_msat_less(htlc_max, htlc_maximum_msat))
+		channel->htlc_maximum_msat = htlc_max;
+	else
+		channel->htlc_maximum_msat = htlc_maximum_msat;
+
 	list_add_tail(&peer->channels, &channel->list);
 	channel->rr_number = peer->ld->rr_counter++;
 	tal_add_destructor(channel, destroy_channel);
@@ -494,26 +534,44 @@ const char *channel_state_str(enum channel_state state)
 	return "unknown";
 }
 
-struct channel *peer_unsaved_channel(struct peer *peer)
+struct channel *peer_any_active_channel(struct peer *peer, bool *others)
 {
-	struct channel *channel;
+	struct channel *channel, *ret = NULL;
 
 	list_for_each(&peer->channels, channel, list) {
-		if (channel_unsaved(channel))
-			return channel;
+		if (!channel_active(channel))
+			continue;
+		/* Already found one? */
+		if (ret) {
+			if (others)
+				*others = true;
+		} else {
+			if (others)
+				*others = false;
+			ret = channel;
+		}
 	}
-	return NULL;
+	return ret;
 }
 
-struct channel *peer_active_channel(struct peer *peer)
+struct channel *peer_any_unsaved_channel(struct peer *peer, bool *others)
 {
-	struct channel *channel;
+	struct channel *channel, *ret = NULL;
 
 	list_for_each(&peer->channels, channel, list) {
-		if (channel_active(channel))
-			return channel;
+		if (!channel_unsaved(channel))
+			continue;
+		/* Already found one? */
+		if (ret) {
+			if (others)
+				*others = true;
+		} else {
+			if (others)
+				*others = false;
+			ret = channel;
+		}
 	}
-	return NULL;
+	return ret;
 }
 
 struct channel_inflight *channel_inflight_find(struct channel *channel,
@@ -526,51 +584,6 @@ struct channel_inflight *channel_inflight_find(struct channel *channel,
 	}
 
 	return NULL;
-}
-
-struct channel *peer_normal_channel(struct peer *peer)
-{
-	struct channel *channel;
-
-	list_for_each(&peer->channels, channel, list) {
-		if (channel->state == CHANNELD_NORMAL)
-			return channel;
-	}
-	return NULL;
-}
-
-struct channel *active_channel_by_id(struct lightningd *ld,
-				     const struct node_id *id,
-				     struct uncommitted_channel **uc)
-{
-	struct peer *peer = peer_by_id(ld, id);
-	if (!peer) {
-		if (uc)
-			*uc = NULL;
-		return NULL;
-	}
-
-	if (uc)
-		*uc = peer->uncommitted_channel;
-	return peer_active_channel(peer);
-}
-
-struct channel *unsaved_channel_by_id(struct lightningd *ld,
-				      const struct node_id *id)
-{
-	struct peer *peer = peer_by_id(ld, id);
-	if (!peer)
-		return NULL;
-	return peer_unsaved_channel(peer);
-}
-
-struct channel *active_channel_by_scid(struct lightningd *ld,
-				       const struct short_channel_id *scid)
-{
-	struct channel *chan = any_channel_by_scid(ld, scid);
-	if (chan && !channel_active(chan))
-		chan = NULL;
-	return chan;
 }
 
 struct channel *any_channel_by_scid(struct lightningd *ld,
@@ -623,6 +636,29 @@ struct channel *channel_by_cid(struct lightningd *ld,
 	return NULL;
 }
 
+struct channel *find_channel_by_id(const struct peer *peer,
+				   const struct channel_id *cid)
+{
+	struct channel *c;
+
+	list_for_each(&peer->channels, c, list) {
+		if (channel_id_eq(&c->cid, cid))
+			return c;
+	}
+	return NULL;
+}
+
+struct channel *find_channel_by_scid(const struct peer *peer,
+				     const struct short_channel_id *scid)
+{
+	struct channel *c;
+
+	list_for_each(&peer->channels, c, list) {
+		if (c->scid && short_channel_id_eq(c->scid, scid))
+			return c;
+	}
+	return NULL;
+}
 
 void channel_set_last_tx(struct channel *channel,
 			 struct bitcoin_tx *tx,
@@ -876,7 +912,7 @@ static void err_and_reconnect(struct channel *channel,
 	channel_set_owner(channel, NULL);
 
 	/* Their address only useful if we connected to them */
-	try_reconnect(channel, seconds_before_reconnect,
+	try_reconnect(channel, channel->peer, seconds_before_reconnect,
 		      channel->peer->connected_incoming
 		      ? NULL
 		      : &channel->peer->addr);

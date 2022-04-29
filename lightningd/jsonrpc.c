@@ -17,6 +17,7 @@
 #include <ccan/asort/asort.h>
 #include <ccan/err/err.h>
 #include <ccan/io/io.h>
+#include <ccan/json_escape/json_escape.h>
 #include <ccan/json_out/json_out.h>
 #include <ccan/tal/str/str.h>
 #include <common/configdir.h>
@@ -26,6 +27,7 @@
 #include <common/memleak.h>
 #include <common/param.h>
 #include <common/timeout.h>
+#include <db/exec.h>
 #include <fcntl.h>
 #include <lightningd/jsonrpc.h>
 #include <lightningd/plugin_hook.h>
@@ -884,7 +886,7 @@ parse_request(struct json_connection *jcon, const jsmntok_t tok[])
 		return NULL;
 	}
 
-	// Adding a deprecated phase to make sure that all the c-lightning wrapper
+	// Adding a deprecated phase to make sure that all the Core Lightning wrapper
 	// can migrate all the frameworks
 	if (!deprecated_apis) {
 		const jsmntok_t *jsonrpc = json_get_member(jcon->buffer, tok, "jsonrpc");

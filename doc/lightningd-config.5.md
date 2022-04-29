@@ -124,7 +124,8 @@ Specify pid file to write to.
  **log-level**=*LEVEL*\[:*SUBSYSTEM*\]
 What log level to print out: options are io, debug, info, unusual,
 broken.  If *SUBSYSTEM* is supplied, this sets the logging level
-for any subsystem containing that string.  Subsystems include:
+for any subsystem containing that string. This option may be specified multiple times.
+Subsystems include:
 
 * *lightningd*: The main lightning daemon
 * *database*: The database subsystem
@@ -219,6 +220,11 @@ If there is no `hsm_secret` yet, `lightningd` will create a new encrypted secret
 If you have an unencrypted `hsm_secret` you want to encrypt on-disk, or vice versa,
 see lightning-hsmtool(8).
 
+ **grpc-port**=*portnum* [plugin `cln-grpc`]
+
+The port number for the GRPC plugin to listen for incoming
+connections; default is not to activate the plugin at all.
+
 ### Lightning node customization options
 
  **alias**=*NAME*
@@ -235,14 +241,14 @@ Default: 1000. The base fee to charge for every payment which passes
 through. Note that millisatoshis are a very, very small unit! Changing
 this value will only affect new channels and not existing ones. If you
 want to change fees for existing channels, use the RPC call
-lightning-setchannelfee(7).
+lightning-setchannel(7).
 
  **fee-per-satoshi**=*MILLIONTHS*
 Default: 10 (0.001%). This is the proportional fee to charge for every
 payment which passes through. As percentages are too coarse, it's in
 millionths, so 10000 is 1%, 1000 is 0.1%. Changing this value will only
 affect new channels and not existing ones. If you want to change fees
-for existing channels, use the RPC call lightning-setchannelfee(7).
+for existing channels, use the RPC call lightning-setchannel(7).
 
  **min-capacity-sat**=*SATOSHI*
 Default: 10000. This value defines the minimal effective channel
@@ -276,6 +282,23 @@ values), and the order is "opening", "mutual_close", "unilateral_close",
 
 You would usually put this option in the per-chain config file, to avoid
 setting it on Bitcoin mainnet!  e.g. `~rusty/.lightning/regtest/config`.
+
+ **htlc-minimum-msat**=*MILLISATOSHI*
+Default: 0. Sets the minimal allowed HTLC value for newly created channels.
+If you want to change the `htlc_minimum_msat` for existing channels, use the
+RPC call lightning-setchannel(7).
+
+ **htlc-maximum-msat**=*MILLISATOSHI*
+Default: unset (no limit). Sets the maximum allowed HTLC value for newly created
+channels. If you want to change the `htlc_maximum_msat` for existing channels,
+use the RPC call lightning-setchannel(7).
+
+ **disable-ip-discovery**
+Turn off public IP discovery to send `node_announcement` updates that contain
+the discovered IP with TCP port 9735 as announced address. If unset and you
+open TCP port 9735 on your router towords your node, your node will remain
+connectable on changing IP addresses.  Note: Will always be disabled if you use
+'always-use-proxy'.
 
 ### Lightning channel and HTLC options
 
@@ -348,6 +371,10 @@ Note that for simple setups, the implicit *autolisten* option does the
 right thing: for the mainnet (bitcoin) network it will try to bind to
 port 9735 on IPv4 and IPv6, and will announce it to peers if it seems
 like a public address.
+
+Core Lightning also support IPv4/6 address discovery behind NAT routers.
+If your node detects an new public address, it will update its announcement.
+For this to work you need to forward the TCP port 9735 to your node.
 
 You can instead use *addr* to override this (eg. to change the port), or
 precisely control where to bind and what to announce with the
@@ -456,7 +483,7 @@ plugins along with any immediate subdirectories). You can specify
 additional paths too:
 
  **plugin**=*PATH*
-Specify a plugin to run as part of c-lightning. This can be specified
+Specify a plugin to run as part of Core Lightning. This can be specified
 multiple times to add multiple plugins.  Note that unless plugins themselves
 specify ordering requirements for being called on various hooks, plugins will
 be ordered by commandline, then config file.
@@ -483,13 +510,13 @@ disabling a single plugin inside a directory.  You can still explicitly
 load plugins which have been disabled, using lightning-plugin(7) `start`.
 
  **important-plugin**=*PLUGIN*
-Speciy a plugin to run as part of C-lightning.
+Speciy a plugin to run as part of Core Lightning.
 This can be specified multiple times to add multiple plugins.
 Plugins specified via this option are considered so important, that if the
 plugin stops for any reason (including via lightning-plugin(7) `stop`),
-C-lightning will also stop running.
+Core Lightning will also stop running.
 This way, you can monitor crashes of important plugins by simply monitoring
-if C-lightning terminates.
+if Core Lightning terminates.
 Built-in plugins, which are installed with lightningd(8), are automatically
 considered important.
 
@@ -497,8 +524,11 @@ considered important.
 
 Experimental options are subject to breakage between releases: they
 are made available for advanced users who want to test proposed
-features.  If lightningd is built configured with
-`--enable-experimental-features` these are on by default.
+features. When the build is configured _without_ `--enable-experimental-features`,
+below options are available but disabled by default.
+A build _with_ `--enable-experimental-features` enables some of below options
+by default and also adds support for even more features. Supported features can
+be listed with `lightningd --list-features-only`.
 
  **experimental-onion-messages**
 
@@ -555,7 +585,7 @@ actually implementing these options.
 SEE ALSO
 --------
 
-lightning-listconfigs(7) lightning-setchannelfee(7) lightningd(8)
+lightning-listconfigs(7) lightning-setchannel(7) lightningd(8)
 lightning-hsmtool(8)
 
 RESOURCES

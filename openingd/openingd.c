@@ -102,10 +102,9 @@ struct state {
 	struct feature_set *our_features;
 };
 
-/*~ If we can't agree on parameters, we fail to open the channel.  If we're
- * the opener, we need to tell lightningd, otherwise it never really notices. */
-static void negotiation_aborted(struct state *state, bool am_opener,
-				const char *why)
+/*~ If we can't agree on parameters, we fail to open the channel.
+ *  Tell lightningd why. */
+static void NORETURN negotiation_aborted(struct state *state, const char *why)
 {
 	status_debug("aborted opening negotiation: %s", why);
 	/*~ The "billboard" (exposed as "status" in the JSON listpeers RPC
@@ -116,29 +115,14 @@ static void negotiation_aborted(struct state *state, bool am_opener,
 	 * status. */
 	peer_billboard(true, why);
 
-	/* If necessary, tell master that funding failed. */
-	if (am_opener) {
-		u8 *msg = towire_openingd_funder_failed(NULL, why);
-		wire_sync_write(REQ_FD, take(msg));
-	}
-
-	/* Default is no shutdown_scriptpubkey: free any leftover ones. */
-	state->upfront_shutdown_script[LOCAL]
-		= tal_free(state->upfront_shutdown_script[LOCAL]);
-	state->upfront_shutdown_script[REMOTE]
-		= tal_free(state->upfront_shutdown_script[REMOTE]);
-
-	/*~ Reset state.  We keep gossipping with them, even though this open
-	* failed. */
-	memset(&state->channel_id, 0, sizeof(state->channel_id));
-	state->channel = tal_free(state->channel);
-
-	state->channel_type = tal_free(state->channel_type);
+	/* Tell master that funding failed. */
+	wire_sync_write(REQ_FD, take(towire_openingd_failed(NULL, why)));
+	exit(0);
 }
 
 /*~ For negotiation failures: we tell them the parameter we didn't like. */
-static void negotiation_failed(struct state *state, bool am_opener,
-			       const char *fmt, ...)
+static void NORETURN negotiation_failed(struct state *state,
+					const char *fmt, ...)
 {
 	va_list ap;
 	const char *errmsg;
@@ -152,7 +136,7 @@ static void negotiation_failed(struct state *state, bool am_opener,
 			      "You gave bad parameters: %s", errmsg);
 	peer_write(state->pps, take(msg));
 
-	negotiation_aborted(state, am_opener, errmsg);
+	negotiation_aborted(state, errmsg);
 }
 
 /* We always set channel_reserve_satoshis to 1%, rounded down. */
@@ -177,7 +161,6 @@ static void set_reserve(struct state *state, const struct amount_sat dust_limit)
 /*~ Handle random messages we might get during opening negotiation, (eg. gossip)
  * returning the first non-handled one, or NULL if we aborted negotiation. */
 static u8 *opening_negotiate_msg(const tal_t *ctx, struct state *state,
-				 bool am_opener,
 				 const struct channel_id *alternate)
 {
 	/* This is an event loop of its own.  That's generally considered poor
@@ -209,8 +192,7 @@ static u8 *opening_negotiate_msg(const tal_t *ctx, struct state *state,
 				  &err, &warning)) {
 			/* BOLT #1:
 			 *
-			 *  - if no existing channel is referred to by the
-			 *    message:
+			 *  - if no existing channel is referred to by `channel_id`:
 			 *    - MUST ignore the message.
 			 */
 			/* In this case, is_peer_error returns true, but sets
@@ -219,7 +201,7 @@ static u8 *opening_negotiate_msg(const tal_t *ctx, struct state *state,
 				tal_free(msg);
 				continue;
 			}
-			negotiation_aborted(state, am_opener,
+			negotiation_aborted(state,
 					    tal_fmt(tmpctx, "They sent %s",
 						    err));
 			/* Return NULL so caller knows to stop negotiating. */
@@ -257,10 +239,6 @@ static bool setup_channel_funder(struct state *state)
 	 * could do it for the we-are-funding case. */
 	set_reserve(state, state->localconf.dust_limit);
 
-	/*~ Grab a random ID until the funding tx is created (we can't do that
-	 * until we know their funding_pubkey) */
-	temporary_channel_id(&state->channel_id);
-
 #if DEVELOPER
 	/* --dev-force-tmp-channel-id specified */
 	if (dev_force_tmp_channel_id)
@@ -297,6 +275,12 @@ static void set_remote_upfront_shutdown(struct state *state,
 	bool anysegwit = feature_negotiated(state->our_features,
 					    state->their_features,
 					    OPT_SHUTDOWN_ANYSEGWIT);
+	bool anchors = feature_negotiated(state->our_features,
+					  state->their_features,
+					  OPT_ANCHOR_OUTPUTS)
+		|| feature_negotiated(state->our_features,
+				      state->their_features,
+				      OPT_ANCHORS_ZERO_FEE_HTLC_TX);
 
 	/* BOLT #2:
 	 *
@@ -312,7 +296,7 @@ static void set_remote_upfront_shutdown(struct state *state,
 		= tal_steal(state, shutdown_scriptpubkey);
 
 	if (shutdown_scriptpubkey
-	    && !valid_shutdown_scriptpubkey(shutdown_scriptpubkey, anysegwit))
+	    && !valid_shutdown_scriptpubkey(shutdown_scriptpubkey, anysegwit, anchors))
 		peer_failed_err(state->pps,
 				&state->channel_id,
 				"Unacceptable upfront_shutdown_script %s",
@@ -330,6 +314,7 @@ static u8 *funder_channel_start(struct state *state, u8 channel_flags)
 	struct tlv_accept_channel_tlvs *accept_tlvs;
 	char *err_reason;
 
+	status_debug("funder_channel_start");
 	if (!setup_channel_funder(state))
 		return NULL;
 
@@ -384,7 +369,7 @@ static u8 *funder_channel_start(struct state *state, u8 channel_flags)
 		       "Funding channel start: offered, now waiting for accept_channel");
 
 	/* ... since their reply should be immediate. */
-	msg = opening_negotiate_msg(tmpctx, state, true, NULL);
+	msg = opening_negotiate_msg(tmpctx, state, NULL);
 	if (!msg)
 		return NULL;
 
@@ -396,8 +381,7 @@ static u8 *funder_channel_start(struct state *state, u8 channel_flags)
 	 *    `payment_basepoint`, or `delayed_payment_basepoint` are not
 	 *    valid secp256k1 pubkeys in compressed format.
 	 */
-	accept_tlvs = tlv_accept_channel_tlvs_new(tmpctx);
-	if (!fromwire_accept_channel(msg, &id_in,
+	if (!fromwire_accept_channel(tmpctx, msg, &id_in,
 				     &state->remoteconf.dust_limit,
 				     &state->remoteconf.max_htlc_value_in_flight,
 				     &state->remoteconf.channel_reserve,
@@ -411,7 +395,7 @@ static u8 *funder_channel_start(struct state *state, u8 channel_flags)
 				     &state->their_points.delayed_payment,
 				     &state->their_points.htlc,
 				     &state->first_per_commitment_point[REMOTE],
-				     accept_tlvs)) {
+				     &accept_tlvs)) {
 		peer_failed_err(state->pps,
 				&state->channel_id,
 				"Parsing accept_channel %s", tal_hex(msg, msg));
@@ -426,7 +410,7 @@ static u8 *funder_channel_start(struct state *state, u8 channel_flags)
 	if (accept_tlvs->channel_type
 	    && !featurebits_eq(accept_tlvs->channel_type,
 			       state->channel_type->features)) {
-		negotiation_failed(state, true,
+		negotiation_failed(state,
 				   "Return unoffered channel_type: %s",
 				   fmt_featurebits(tmpctx,
 						   accept_tlvs->channel_type));
@@ -447,7 +431,7 @@ static u8 *funder_channel_start(struct state *state, u8 channel_flags)
 
 	if (amount_sat_greater(state->remoteconf.dust_limit,
 			       state->localconf.channel_reserve)) {
-		negotiation_failed(state, true,
+		negotiation_failed(state,
 				   "dust limit %s"
 				   " would be above our reserve %s",
 				   type_to_string(tmpctx, struct amount_sat,
@@ -468,7 +452,7 @@ static u8 *funder_channel_start(struct state *state, u8 channel_flags)
 						    state->their_features,
 						    OPT_ANCHOR_OUTPUTS),
 				 &err_reason)) {
-		negotiation_failed(state, true, "%s", err_reason);
+		negotiation_failed(state, "%s", err_reason);
 		return NULL;
 	}
 
@@ -579,7 +563,7 @@ static bool funder_finalize_channel_setup(struct state *state,
 	if (!*tx) {
 		/* This should not happen: we should never create channels we
 		 * can't afford the fees for after reserve. */
-		negotiation_failed(state, true,
+		negotiation_failed(state,
 				   "Could not meet their fees and reserve: %s", err_reason);
 		goto fail;
 	}
@@ -594,12 +578,18 @@ static bool funder_finalize_channel_setup(struct state *state,
 	 * witness script.  It also needs the amount of the funding output,
 	 * as segwit signatures commit to that as well, even though it doesn't
 	 * explicitly appear in the transaction itself. */
+	struct simple_htlc **htlcs = tal_arr(tmpctx, struct simple_htlc *, 0);
+	u32 feerate = 0; // unused since there are no htlcs
+	u64 commit_num = 0;
 	msg = towire_hsmd_sign_remote_commitment_tx(NULL,
 						   *tx,
 						   &state->channel->funding_pubkey[REMOTE],
 						   &state->first_per_commitment_point[REMOTE],
 						    channel_has(state->channel,
-								OPT_STATIC_REMOTEKEY));
+								OPT_STATIC_REMOTEKEY),
+						    commit_num,
+						    (const struct simple_htlc **) htlcs,
+						    feerate);
 
 	wire_sync_write(HSM_FD, take(msg));
 	msg = wire_sync_read(tmpctx, HSM_FD);
@@ -638,7 +628,7 @@ static bool funder_finalize_channel_setup(struct state *state,
 	 * transaction.  Note that errors may refer to the temporary channel
 	 * id (state->channel_id), but success should refer to the new
 	 * "cid" */
-	msg = opening_negotiate_msg(tmpctx, state, true, &cid);
+	msg = opening_negotiate_msg(tmpctx, state, &cid);
 	if (!msg)
 		goto fail;
 
@@ -690,10 +680,12 @@ static bool funder_finalize_channel_setup(struct state *state,
 				 &state->first_per_commitment_point[LOCAL],
 				 LOCAL, direct_outputs, &err_reason);
 	if (!*tx) {
-		negotiation_failed(state, true,
+		negotiation_failed(state,
 				   "Could not meet our fees and reserve: %s", err_reason);
 		goto fail;
 	}
+
+	validate_initial_commitment_signature(HSM_FD, *tx, sig);
 
 	if (!check_tx_sig(*tx, 0, NULL, wscript, &state->their_funding_pubkey, sig)) {
 		peer_failed_err(state->pps, &state->channel_id,
@@ -786,8 +778,7 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 	struct wally_tx_output *direct_outputs[NUM_SIDES];
 	struct penalty_base *pbase;
 	struct tlv_accept_channel_tlvs *accept_tlvs;
-	struct tlv_open_channel_tlvs *open_tlvs
-		= tlv_open_channel_tlvs_new(tmpctx);
+	struct tlv_open_channel_tlvs *open_tlvs;
 
 	/* BOLT #2:
 	 *
@@ -797,7 +788,7 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 	 *    `payment_basepoint`, or `delayed_payment_basepoint` are not valid
 	 *     secp256k1 pubkeys in compressed format.
 	 */
-	if (!fromwire_open_channel(open_channel_msg, &chain_hash,
+	if (!fromwire_open_channel(tmpctx, open_channel_msg, &chain_hash,
 			    &state->channel_id,
 			    &state->funding_sats,
 			    &state->push_msat,
@@ -815,7 +806,7 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 			    &theirs.htlc,
 			    &state->first_per_commitment_point[REMOTE],
 			    &channel_flags,
-			    open_tlvs))
+			    &open_tlvs))
 		    peer_failed_err(state->pps,
 				    &state->channel_id,
 				    "Parsing open_channel %s", tal_hex(tmpctx, open_channel_msg));
@@ -834,7 +825,7 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 					    state->our_features,
 					    state->their_features);
 		if (!state->channel_type) {
-			negotiation_failed(state, false,
+			negotiation_failed(state,
 					   "Did not support channel_type %s",
 					   fmt_featurebits(tmpctx,
 							   open_tlvs->channel_type));
@@ -853,7 +844,7 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 	 *  that is unknown to the receiver.
 	 */
 	if (!bitcoin_blkid_eq(&chain_hash, &chainparams->genesis_blockhash)) {
-		negotiation_failed(state, false,
+		negotiation_failed(state,
 				   "Unknown chain-hash %s",
 				   type_to_string(tmpctx,
 						  struct bitcoin_blkid,
@@ -871,7 +862,7 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 	if (!feature_negotiated(state->our_features, state->their_features,
 				OPT_LARGE_CHANNELS)
 	    && amount_sat_greater(state->funding_sats, chainparams->max_funding)) {
-		negotiation_failed(state, false,
+		negotiation_failed(state,
 				   "funding_satoshis %s too large",
 				   type_to_string(tmpctx, struct amount_sat,
 						  &state->funding_sats));
@@ -903,14 +894,14 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 	 *    unreasonably large.
 	 */
 	if (state->feerate_per_kw < state->min_feerate) {
-		negotiation_failed(state, false,
+		negotiation_failed(state,
 				   "feerate_per_kw %u below minimum %u",
 				   state->feerate_per_kw, state->min_feerate);
 		return NULL;
 	}
 
 	if (state->feerate_per_kw > state->max_feerate) {
-		negotiation_failed(state, false,
+		negotiation_failed(state,
 				   "feerate_per_kw %u above maximum %u",
 				   state->feerate_per_kw, state->max_feerate);
 		return NULL;
@@ -930,7 +921,7 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 	 */
 	if (amount_sat_greater(state->remoteconf.dust_limit,
 			       state->localconf.channel_reserve)) {
-		negotiation_failed(state, false,
+		negotiation_failed(state,
 				   "Our channel reserve %s"
 				   " would be below their dust %s",
 				   type_to_string(tmpctx, struct amount_sat,
@@ -941,7 +932,7 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 	}
 	if (amount_sat_greater(state->localconf.dust_limit,
 			       state->remoteconf.channel_reserve)) {
-		negotiation_failed(state, false,
+		negotiation_failed(state,
 				   "Our dust limit %s"
 				   " would be above their reserve %s",
 				   type_to_string(tmpctx, struct amount_sat,
@@ -963,7 +954,7 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 						    state->their_features,
 						    OPT_ANCHOR_OUTPUTS),
 				 &err_reason)) {
-		negotiation_failed(state, false, "%s", err_reason);
+		negotiation_failed(state, "%s", err_reason);
 		return NULL;
 	}
 
@@ -993,7 +984,7 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 
 	/* If they give us a reason to reject, do so. */
 	if (err_reason) {
-		negotiation_failed(state, false, "%s", err_reason);
+		negotiation_failed(state, "%s", err_reason);
 		tal_free(err_reason);
 		return NULL;
 	}
@@ -1036,7 +1027,7 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 		       "Incoming channel: accepted, now waiting for them to create funding tx");
 
 	/* This is a loop which handles gossip until we get a non-gossip msg */
-	msg = opening_negotiate_msg(tmpctx, state, false, NULL);
+	msg = opening_negotiate_msg(tmpctx, state, NULL);
 	if (!msg)
 		return NULL;
 
@@ -1115,23 +1106,26 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 	 * The recipient:
 	 *   - if `signature` is incorrect OR non-compliant with LOW-S-standard
 	 *     rule...:
-	 *     - MUST fail the channel.
+	 *     - MUST send a `warning` and close the connection, or send an
+	 *       `error` and fail the channel.
 	 */
 	local_commit = initial_channel_tx(state, &wscript, state->channel,
 					  &state->first_per_commitment_point[LOCAL],
 					  LOCAL, NULL, &err_reason);
 	/* This shouldn't happen either, AFAICT. */
 	if (!local_commit) {
-		negotiation_failed(state, false,
+		negotiation_failed(state,
 				   "Could not meet our fees and reserve: %s", err_reason);
 		return NULL;
 	}
+
+	validate_initial_commitment_signature(HSM_FD, local_commit, &theirsig);
 
 	if (!check_tx_sig(local_commit, 0, NULL, wscript, &their_funding_pubkey,
 			  &theirsig)) {
 		/* BOLT #1:
 		 *
-		 * ### The `error` Message
+		 * ### The `error` and `warning` Messages
 		 *...
 		 * - when failure was caused by an invalid signature check:
 		 *    - SHOULD include the raw, hex-encoded transaction in reply
@@ -1179,18 +1173,24 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 					   &state->first_per_commitment_point[REMOTE],
 					   REMOTE, direct_outputs, &err_reason);
 	if (!remote_commit) {
-		negotiation_failed(state, false,
+		negotiation_failed(state,
 				   "Could not meet their fees and reserve: %s", err_reason);
 		return NULL;
 	}
 
 	/* Make HSM sign it */
+	struct simple_htlc **htlcs = tal_arr(tmpctx, struct simple_htlc *, 0);
+	u32 feerate = 0; // unused since there are no htlcs
+	u64 commit_num = 0;
 	msg = towire_hsmd_sign_remote_commitment_tx(NULL,
 						   remote_commit,
 						   &state->channel->funding_pubkey[REMOTE],
 						   &state->first_per_commitment_point[REMOTE],
 						    channel_has(state->channel,
-								OPT_STATIC_REMOTEKEY));
+								OPT_STATIC_REMOTEKEY),
+						   commit_num,
+						   (const struct simple_htlc **) htlcs,
+						   feerate);
 
 	wire_sync_write(HSM_FD, take(msg));
 	msg = wire_sync_read(tmpctx, HSM_FD);
@@ -1251,11 +1251,6 @@ static u8 *handle_peer_in(struct state *state)
 
 	extracted = extract_channel_id(msg, &channel_id);
 
-	/* Reestablish on some now-closed channel?  Be nice. */
-	if (extracted && fromwire_peektype(msg) == WIRE_CHANNEL_REESTABLISH) {
-		return towire_openingd_got_reestablish(NULL,
-						       &channel_id, msg);
-	}
 	peer_write(state->pps,
 			  take(towire_warningfmt(NULL,
 						 extracted ? &channel_id : NULL,
@@ -1313,6 +1308,7 @@ static u8 *handle_master_in(struct state *state)
 						    &state->upfront_shutdown_script[LOCAL],
 						    &state->local_upfront_shutdown_wallet_index,
 						    &state->feerate_per_kw,
+						    &state->channel_id,
 						    &channel_flags))
 			master_badmsg(WIRE_OPENINGD_FUNDER_START, msg);
 		msg = funder_channel_start(state, channel_flags);
@@ -1337,7 +1333,7 @@ static u8 *handle_master_in(struct state *state)
 
 		msg = towire_errorfmt(NULL, &state->channel_id, "Channel open canceled by us");
 		peer_write(state->pps, take(msg));
-		negotiation_aborted(state, true, "Channel open canceled by RPC");
+		negotiation_aborted(state, "Channel open canceled by RPC");
 		return NULL;
 	case WIRE_OPENINGD_DEV_MEMLEAK:
 #if DEVELOPER
@@ -1349,10 +1345,9 @@ static u8 *handle_master_in(struct state *state)
 	case WIRE_OPENINGD_FUNDER_REPLY:
 	case WIRE_OPENINGD_FUNDER_START_REPLY:
 	case WIRE_OPENINGD_FUNDEE:
-	case WIRE_OPENINGD_FUNDER_FAILED:
+	case WIRE_OPENINGD_FAILED:
 	case WIRE_OPENINGD_GOT_OFFER:
 	case WIRE_OPENINGD_GOT_OFFER_REPLY:
-	case WIRE_OPENINGD_GOT_REESTABLISH:
 		break;
 	}
 
@@ -1428,9 +1423,6 @@ int main(int argc, char *argv[])
 	/*~ The HSM gives us the N-2'th per-commitment secret when we get the
 	 * N'th per-commitment point.  But since N=0, it won't give us one. */
 	assert(none == NULL);
-
-	/*~ Turns out this is useful for testing, to make sure we're ready. */
-	status_debug("Handed peer, entering loop");
 
 	/*~ We manually run a little poll() loop here.  With only three fds */
 	pollfd[0].fd = REQ_FD;

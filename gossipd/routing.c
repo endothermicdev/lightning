@@ -34,10 +34,10 @@ struct pending_node_announce {
 	struct peer *peer_softref;
 };
 
-/* We consider a reasonable gossip rate to be 1 per day, with burst of
+/* We consider a reasonable gossip rate to be 2 per day, with burst of
  * 4 per day.  So we use a granularity of one hour. */
-#define TOKENS_PER_MSG 24
-#define TOKEN_MAX (24 * 4)
+#define TOKENS_PER_MSG 12
+#define TOKEN_MAX (12 * 4)
 
 static u8 update_tokens(const struct routing_state *rstate,
 			u8 tokens, u32 prev_timestamp, u32 new_timestamp)
@@ -431,6 +431,25 @@ static bool node_announce_predates_channels(const struct node *node)
 	return true;
 }
 
+/* Move this node's announcement to the tail of the gossip_store, to
+ * make everyone send it again. */
+static void force_node_announce_rexmit(struct routing_state *rstate,
+				       struct node *node)
+{
+	const u8 *announce;
+	bool is_local = node_id_eq(&node->id, &rstate->local_id);
+	announce = gossip_store_get(tmpctx, rstate->gs, node->bcast.index);
+
+	gossip_store_delete(rstate->gs,
+			    &node->bcast,
+			    WIRE_NODE_ANNOUNCEMENT);
+	node->bcast.index = gossip_store_add(rstate->gs,
+					     announce,
+					     node->bcast.timestamp,
+					     is_local,
+					     NULL);
+}
+
 static void remove_chan_from_node(struct routing_state *rstate,
 				  struct node *node, const struct chan *chan)
 {
@@ -468,23 +487,11 @@ static void remove_chan_from_node(struct routing_state *rstate,
 				    &node->bcast,
 				    WIRE_NODE_ANNOUNCEMENT);
 	} else if (node_announce_predates_channels(node)) {
-		const u8 *announce;
-
-		announce = gossip_store_get(tmpctx, rstate->gs,
-					    node->bcast.index);
-
 		/* node announcement predates all channel announcements?
 		 * Move to end (we could, in theory, move to just past next
 		 * channel_announce, but we don't care that much about spurious
 		 * retransmissions in this corner case */
-		gossip_store_delete(rstate->gs,
-				    &node->bcast,
-				    WIRE_NODE_ANNOUNCEMENT);
-		node->bcast.index = gossip_store_add(rstate->gs,
-						     announce,
-						     node->bcast.timestamp,
-						     false,
-						     NULL);
+		force_node_announce_rexmit(rstate, node);
 	}
 }
 
@@ -895,7 +902,7 @@ u8 *handle_channel_announcement(struct routing_state *rstate,
 {
 	struct pending_cannouncement *pending;
 	struct bitcoin_blkid chain_hash;
-	u8 *features, *err;
+	u8 *features, *warn;
 	secp256k1_ecdsa_signature node_signature_1, node_signature_2;
 	secp256k1_ecdsa_signature bitcoin_signature_1, bitcoin_signature_2;
 	struct chan *chan;
@@ -920,7 +927,7 @@ u8 *handle_channel_announcement(struct routing_state *rstate,
 					   &pending->node_id_2,
 					   &pending->bitcoin_key_1,
 					   &pending->bitcoin_key_2)) {
-		err = towire_warningfmt(rstate, NULL,
+		warn = towire_warningfmt(rstate, NULL,
 					"Malformed channel_announcement %s",
 					tal_hex(pending, pending->announce));
 		goto malformed;
@@ -1000,7 +1007,7 @@ u8 *handle_channel_announcement(struct routing_state *rstate,
 	}
 
 	/* Note that if node_id_1 or node_id_2 are malformed, it's caught here */
-	err = check_channel_announcement(rstate,
+	warn = check_channel_announcement(rstate,
 					 &pending->node_id_1,
 					 &pending->node_id_2,
 					 &pending->bitcoin_key_1,
@@ -1010,13 +1017,15 @@ u8 *handle_channel_announcement(struct routing_state *rstate,
 					 &bitcoin_signature_1,
 					 &bitcoin_signature_2,
 					 pending->announce);
-	if (err) {
+	if (warn) {
 		/* BOLT #7:
 		 *
 		 * - if `bitcoin_signature_1`, `bitcoin_signature_2`,
 		 *   `node_signature_1` OR `node_signature_2` are invalid OR NOT
 		 *    correct:
-		 *    - SHOULD fail the connection.
+		 *   - SHOULD send a `warning`.
+		 *   - MAY close the connection.
+		 *   - MUST ignore the message.
 		 */
 		goto malformed;
 	}
@@ -1058,7 +1067,7 @@ u8 *handle_channel_announcement(struct routing_state *rstate,
 malformed:
 	tal_free(pending);
 	*scid = NULL;
-	return err;
+	return warn;
 
 ignored:
 	tal_free(pending);
@@ -1469,7 +1478,7 @@ u8 *handle_channel_update(struct routing_state *rstate, const u8 *update TAKES,
 	struct bitcoin_blkid chain_hash;
 	u8 direction;
 	struct pending_cannouncement *pending;
-	u8 *err;
+	u8 *warn;
 
 	serialized = tal_dup_talarr(tmpctx, u8, update);
 	if (!fromwire_channel_update(serialized, &signature,
@@ -1478,10 +1487,10 @@ u8 *handle_channel_update(struct routing_state *rstate, const u8 *update TAKES,
 				     &channel_flags, &expiry,
 				     &htlc_minimum, &fee_base_msat,
 				     &fee_proportional_millionths)) {
-		err = towire_warningfmt(rstate, NULL,
-					"Malformed channel_update %s",
-					tal_hex(tmpctx, serialized));
-		return err;
+		warn = towire_warningfmt(rstate, NULL,
+					 "Malformed channel_update %s",
+					 tal_hex(tmpctx, serialized));
+		return warn;
 	}
 	direction = channel_flags & 0x1;
 
@@ -1534,18 +1543,18 @@ u8 *handle_channel_update(struct routing_state *rstate, const u8 *update TAKES,
 		return NULL;
 	}
 
-	err = check_channel_update(rstate, owner, &signature, serialized);
-	if (err) {
+	warn = check_channel_update(rstate, owner, &signature, serialized);
+	if (warn) {
 		/* BOLT #7:
 		 *
 		 * - if `signature` is not a valid signature, using `node_id`
 		 *  of the double-SHA256 of the entire message following the
 		 *  `signature` field (including unknown fields following
 		 *  `fee_proportional_millionths`):
+		 *    - SHOULD send a `warning` and close the connection.
 		 *    - MUST NOT process the message further.
-		 *    - SHOULD fail the connection.
 		 */
-		return err;
+		return warn;
 	}
 
 	routing_add_channel_update(rstate, take(serialized), 0, peer, force);
@@ -1575,12 +1584,11 @@ bool routing_add_node_announcement(struct routing_state *rstate,
 		tal_steal(tmpctx, msg);
 
 	/* Note: validity of node_id is already checked. */
-	na_tlv = tlv_node_ann_tlvs_new(tmpctx);
 	if (!fromwire_node_announcement(tmpctx, msg,
 					&signature, &features, &timestamp,
 					&node_id, rgb_color, alias,
 					&addresses,
-					na_tlv)) {
+					&na_tlv)) {
 		return false;
 	}
 
@@ -1624,6 +1632,7 @@ bool routing_add_node_announcement(struct routing_state *rstate,
 
 	if (node->bcast.index) {
 		bool only_tlv_diff;
+		u32 redundant_time;
 
 		if (index != 0) {
 			status_broken("gossip_store node_announcement %u replaces %u!",
@@ -1637,8 +1646,9 @@ bool routing_add_node_announcement(struct routing_state *rstate,
 			return index == 0;
 		}
 
-		/* Allow redundant updates once every 7 days */
-		if (timestamp < node->bcast.timestamp + GOSSIP_PRUNE_INTERVAL(rstate->dev_fast_gossip_prune) / 2
+		/* Allow redundant updates once a day (faster in dev-fast-gossip-prune mode) */
+		redundant_time = GOSSIP_PRUNE_INTERVAL(rstate->dev_fast_gossip_prune) / 14;
+		if (timestamp < node->bcast.timestamp + redundant_time
 		    && !nannounce_different(rstate->gs, node, msg,
 					    &only_tlv_diff)) {
 			SUPERVERBOSE(
@@ -1717,22 +1727,22 @@ u8 *handle_node_announcement(struct routing_state *rstate, const u8 *node_ann,
 		*was_unknown = false;
 
 	serialized = tal_dup_arr(tmpctx, u8, node_ann, len, 0);
-	na_tlv = tlv_node_ann_tlvs_new(tmpctx);
 	if (!fromwire_node_announcement(tmpctx, serialized,
 					&signature, &features, &timestamp,
 					&node_id, rgb_color, alias,
 					&addresses,
-					na_tlv)) {
+					&na_tlv)) {
 		/* BOLT #7:
 		 *
 		 *   - if `node_id` is NOT a valid compressed public key:
-		 *    - SHOULD fail the connection.
+		 *    - SHOULD send a `warning`.
+		 *    - MAY close the connection.
 		 *    - MUST NOT process the message further.
 		 */
-		u8 *err = towire_warningfmt(rstate, NULL,
+		u8 *warn = towire_warningfmt(rstate, NULL,
 					    "Malformed node_announcement %s",
 					    tal_hex(tmpctx, node_ann));
-		return err;
+		return warn;
 	}
 
 	sha256_double(&hash, serialized + 66, tal_count(serialized) - 66);
@@ -1745,10 +1755,10 @@ u8 *handle_node_announcement(struct routing_state *rstate, const u8 *node_ann,
                  *   message following the `signature` field
                  *   (including unknown fields following
                  *   `fee_proportional_millionths`):
-		 *    - MUST NOT process the message further.
-		 *    - SHOULD fail the connection.
+                 *     - SHOULD send a `warning` and close the connection.
+                 *     - MUST NOT process the message further.
 		 */
-		u8 *err = towire_warningfmt(rstate, NULL,
+		u8 *warn = towire_warningfmt(rstate, NULL,
 					    "Bad signature for %s hash %s"
 					    " on node_announcement %s",
 					    type_to_string(tmpctx,
@@ -1758,7 +1768,7 @@ u8 *handle_node_announcement(struct routing_state *rstate, const u8 *node_ann,
 							   struct sha256_double,
 							   &hash),
 					    tal_hex(tmpctx, node_ann));
-		return err;
+		return warn;
 	}
 
 	wireaddrs = fromwire_wireaddr_array(tmpctx, addresses);
@@ -1767,13 +1777,14 @@ u8 *handle_node_announcement(struct routing_state *rstate, const u8 *node_ann,
 		 *
 		 * - if `addrlen` is insufficient to hold the address
 		 *  descriptors of the known types:
-		 *    - SHOULD fail the connection.
+		 *    - SHOULD send a `warning`.
+		 *    - MAY close the connection.
 		 */
-		u8 *err = towire_warningfmt(rstate, NULL,
+		u8 *warn = towire_warningfmt(rstate, NULL,
 					    "Malformed wireaddrs %s in %s.",
 					    tal_hex(tmpctx, wireaddrs),
 					    tal_hex(tmpctx, node_ann));
-		return err;
+		return warn;
 	}
 
 	/* May still fail, if we don't know the node. */

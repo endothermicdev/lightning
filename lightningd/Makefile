@@ -38,25 +38,27 @@ LIGHTNINGD_SRC :=				\
 	lightningd/subd.c			\
 	lightningd/watch.c
 
-
 LIGHTNINGD_SRC_NOHDR :=				\
 	lightningd/datastore.c			\
 	lightningd/ping.c			\
 	lightningd/offer.c			\
 	lightningd/signmessage.c
 
-LIGHTNINGD_HEADERS :=				\
+include wallet/Makefile
+
+LIGHTNINGD_HDRS :=				\
 	$(LIGHTNINGD_SRC:.c=.h)			\
 	lightningd/channel_state.h		\
-	lightningd/channel_state_names_gen.h
+	lightningd/channel_state_names_gen.h	\
+	$(WALLET_HDRS)
 
 
 LIGHTNINGD_OBJS := $(LIGHTNINGD_SRC:.c=.o) $(LIGHTNINGD_SRC_NOHDR:.c=.o)
-$(LIGHTNINGD_OBJS): $(LIGHTNINGD_HEADERS) $(LIGHTNINGD_CONTROL_HEADERS)
+$(LIGHTNINGD_OBJS): $(LIGHTNINGD_HDRS) $(LIGHTNINGD_CONTROL_HEADERS)
 
 # Make sure these depend on everything.
 ALL_C_SOURCES += $(LIGHTNINGD_SRC) $(LIGHTNINGD_SRC_NOHDR)
-ALL_C_HEADERS += $(LIGHTNINGD_HEADERS)
+ALL_C_HEADERS += $(LIGHTNINGD_HDRS)
 ALL_PROGRAMS += lightningd/lightningd
 
 # Common source we use.
@@ -113,6 +115,7 @@ LIGHTNINGD_COMMON_OBJS :=			\
 	common/penalty_base.o			\
 	common/per_peer_state.o			\
 	common/permute_tx.o			\
+	common/psbt_keypath.o		\
 	common/psbt_open.o			\
 	common/pseudorand.o			\
 	common/random_select.o			\
@@ -128,13 +131,11 @@ LIGHTNINGD_COMMON_OBJS :=			\
 	common/wallet.o				\
 	common/wire_error.o			\
 	common/wireaddr.o			\
+	db/bindings.o				\
+	db/exec.o				\
 
-include wallet/Makefile
-
-# All together in one convenient var
-LIGHTNINGD_HEADERS = $(LIGHTNINGD_HEADERS_NOGEN) $(LIGHTNINGD_HEADERS_GEN) $(WALLET_HDRS)
-
-$(LIGHTNINGD_OBJS): $(LIGHTNINGD_HEADERS)
+$(LIGHTNINGD_OBJS): $(LIGHTNINGD_HDRS)
+$(WALLET_OBJS): $(LIGHTNINGD_HDRS) $(DB_HEADERS)
 
 # Only the plugin component needs to depend on this header.
 lightningd/plugin.o: plugins/list_of_builtin_plugins_gen.h
@@ -142,6 +143,6 @@ lightningd/plugin.o: plugins/list_of_builtin_plugins_gen.h
 lightningd/channel_state_names_gen.h: lightningd/channel_state.h ccan/ccan/cdump/tools/cdump-enumstr
 	ccan/ccan/cdump/tools/cdump-enumstr lightningd/channel_state.h > $@
 
-lightningd/lightningd: $(LIGHTNINGD_OBJS) $(WALLET_OBJS) $(LIGHTNINGD_COMMON_OBJS) $(BITCOIN_OBJS) $(WIRE_OBJS) $(WIRE_ONION_OBJS) $(LIGHTNINGD_CONTROL_OBJS) $(HSMD_CLIENT_OBJS)
+lightningd/lightningd: $(LIGHTNINGD_OBJS) $(WALLET_OBJS) $(LIGHTNINGD_COMMON_OBJS) $(BITCOIN_OBJS) $(WIRE_OBJS) $(WIRE_ONION_OBJS) $(LIGHTNINGD_CONTROL_OBJS) $(HSMD_CLIENT_OBJS) $(DB_OBJS)
 
 include lightningd/test/Makefile

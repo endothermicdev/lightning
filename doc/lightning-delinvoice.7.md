@@ -1,19 +1,23 @@
-lightning-delinvoice -- Command for removing an invoice
-=======================================================
+lightning-delinvoice -- Command for removing an invoice (or just its description)
+=================================================================================
 
 SYNOPSIS
 --------
 
-**delinvoice** *label* *status*
+**delinvoice** *label* *status* [*desconly*]
 
 DESCRIPTION
 -----------
 
 The **delinvoice** RPC command removes an invoice with *status* as given
-in **listinvoices**.
+in **listinvoices**, or with *desconly* set, removes its description.
 
 The caller should be particularly aware of the error case caused by the
 *status* changing just before this command is invoked!
+
+If *desconly* is set, the invoice is not deleted, but has its
+description removed (this can save space with very large descriptions,
+as would be used with lightning-invoice(7) *deschashonly*.
 
 RETURN VALUE
 ------------
@@ -23,7 +27,7 @@ Note: The return is the same as an object from lightning-listinvoice(7).
 [comment]: # (GENERATE-FROM-SCHEMA-START)
 On success, an object is returned, containing:
 - **label** (string): Unique label given at creation time
-- **payment_hash** (hex): the hash of the *payment_preimage* which will prove payment (always 64 characters)
+- **payment_hash** (hash): the hash of the *payment_preimage* which will prove payment (always 64 characters)
 - **status** (string): State of invoice (one of "paid", "expired", "unpaid")
 - **expires_at** (u64): UNIX timestamp when invoice expires (or expired)
 - **bolt11** (string, optional): BOLT11 string
@@ -39,7 +43,7 @@ If **status** is "paid":
   - **pay_index** (u64): unique index for this invoice payment
   - **amount_received_msat** (msat): how much was actually received
   - **paid_at** (u64): UNIX timestamp of when payment was received
-  - **payment_preimage** (hex): SHA256 of this is the *payment_hash* offered in the invoice (always 64 characters)
+  - **payment_preimage** (secret): SHA256 of this is the *payment_hash* offered in the invoice (always 64 characters)
 
 [comment]: # (GENERATE-FROM-SCHEMA-END)
 
@@ -55,6 +59,7 @@ The following errors may be reported:
   *current_status* and *expected_status* fields.
   This is most likely due to the *status* of the invoice
   changing just before this command is invoked.
+- 908: The invoice already has no description, and *desconly* was set.
 
 AUTHOR
 ------
@@ -73,4 +78,4 @@ RESOURCES
 
 Main web site: <https://github.com/ElementsProject/lightning>
 
-[comment]: # ( SHA256STAMP:cd3b009a6ef0c220ca21c6d8e3a5716ca2080997016cf00a2e26defc03cfac73)
+[comment]: # ( SHA256STAMP:407d741b622621da127dc1e55c98c299ace970f8244bc14574dddcafbf9aa1fc)

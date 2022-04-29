@@ -1,6 +1,6 @@
-# Reproducible builds for c-lightning
+# Reproducible builds for Core Lightning
 
-This document describes the steps involved to build c-lightning in a
+This document describes the steps involved to build Core Lightning in a
 reproducible way. Reproducible builds close the final gap in the lifecycle of
 open-source projects by allowing maintainers to verify and certify that a
 given binary was indeed produced by compiling an unmodified version of the
@@ -8,7 +8,7 @@ publicly available source. In particular the maintainer certifies that the
 binary corresponds a) to the exact version of the and b) that no malicious
 changes have been applied before or after the compilation.
 
-c-lightning has provided a manifest of the binaries included in a release,
+Core Lightning has provided a manifest of the binaries included in a release,
 along with signatures from the maintainers since version 0.6.2.
 
 The steps involved in creating reproducible builds are:
@@ -66,30 +66,26 @@ latter means that if we disable the `updates` and `security` repositories for
 packages (wrongly updated packages depending on the versions not available in
 the non-updated repos).
 
-The following will create that base image:
-
-```bash
-sudo debootstrap bionic bionic
-sudo tar -C bionic -c . | sudo docker import - bionic
-```
-
-`bionic` in this case is the codename for Ubuntu 18.04 LTS. The following
-table lists the codenames of distributions that we currently support:
+The following table lists the codenames of distributions that we
+currently support:
 
 | Distribution Version | Codename |
 |----------------------|----------|
 | Ubuntu 18.04         | bionic   |
 | Ubuntu 20.04         | focal    |
+| Ubuntu 22.04         | jammy    |
 
-Notice that you migh not have `debootstrap` manifests for versions newer than
-your host OS. If one of the `debootstrap` command above complains about a
-script not existing you might need to run `debootstrap` in a docker container
-itself:
+Depending on your host OS release you migh not have `debootstrap`
+manifests for versions newer than your host OS. Due to this we run the
+`debootstrap` commands in a container of the latest version itself:
 
 ```bash
-sudo docker run --rm -v $(pwd):/build ubuntu:20.04 \
-	bash -c "apt update && apt-get install -y debootstrap && debootstrap focal /build/focal"
-sudo tar -C focal -c . | sudo docker import - focal
+for v in bionic focal jammy; do
+  echo "Building base image for $v"
+  sudo docker run --rm -v $(pwd):/build ubuntu:22.04 \
+	bash -c "apt-get update && apt-get install -y debootstrap && debootstrap $v /build/$v"
+  sudo tar -C $v -c . | sudo docker import - $v
+done
 ```
 
 Verify that the image corresponds to our expectation and is runnable:
@@ -109,7 +105,7 @@ DISTRIB_DESCRIPTION="Ubuntu 18.04 LTS"
 ## Builder image setup
 
 Once we have the clean base image we need to customize it to be able to build
-c-lightning. This includes disabling the update repositories, downloading the
+Core Lightning. This includes disabling the update repositories, downloading the
 build dependencies and specifying the steps required to perform the build.
 
 For this purpose we have a number of Dockerfiles in the

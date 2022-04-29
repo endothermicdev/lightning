@@ -1,6 +1,7 @@
 #include "config.h"
 #include <ccan/array_size/array_size.h>
 #include <ccan/err/err.h>
+#include <ccan/json_escape/json_escape.h>
 #include <ccan/mem/mem.h>
 #include <ccan/opt/opt.h>
 #include <ccan/opt/private.h>
@@ -303,7 +304,7 @@ static char *opt_add_announce_addr(const char *arg, struct lightningd *ld)
 
 	/* Can't announce anything that's not a normal wireaddr. */
 	if (ld->proposed_wireaddr[n].itype != ADDR_INTERNAL_WIREADDR)
-		return tal_fmt(NULL, "address '%s' is not announcable",
+		return tal_fmt(NULL, "address '%s' is not announceable",
 			       arg);
 
 	return NULL;
@@ -501,6 +502,12 @@ static char *opt_important_plugin(const char *arg, struct lightningd *ld)
 static char *opt_set_hsm_password(struct lightningd *ld)
 {
 	char *passwd, *passwd_confirmation, *err_msg;
+	int is_encrypted;
+
+        is_encrypted = is_hsm_secret_encrypted("hsm_secret");
+	if (is_encrypted == -1)
+		return tal_fmt(NULL, "Could not access 'hsm_secret': %s",
+			       strerror(errno));
 
 	printf("The hsm_secret is encrypted with a password. In order to "
 	       "decrypt it and start the node you must provide the password.\n");
@@ -512,11 +519,19 @@ static char *opt_set_hsm_password(struct lightningd *ld)
 	passwd = read_stdin_pass_with_exit_code(&err_msg, &opt_exitcode);
 	if (!passwd)
 		return err_msg;
-	printf("Confirm hsm_secret password:\n");
-	fflush(stdout);
-	passwd_confirmation = read_stdin_pass_with_exit_code(&err_msg, &opt_exitcode);
-	if (!passwd_confirmation)
-		return err_msg;
+	if (!is_encrypted) {
+		printf("Confirm hsm_secret password:\n");
+		fflush(stdout);
+		passwd_confirmation = read_stdin_pass_with_exit_code(&err_msg, &opt_exitcode);
+		if (!passwd_confirmation)
+			return err_msg;
+
+		if (!streq(passwd, passwd_confirmation)) {
+			opt_exitcode = HSM_BAD_PASSWORD;
+			return "Passwords confirmation mismatch.";
+		}
+		free(passwd_confirmation);
+	}
 	printf("\n");
 
 	ld->config.keypass = tal(NULL, struct secret);
@@ -527,7 +542,6 @@ static char *opt_set_hsm_password(struct lightningd *ld)
 
 	ld->encrypted_hsm = true;
 	free(passwd);
-	free(passwd_confirmation);
 
 	return NULL;
 }
@@ -611,11 +625,11 @@ static char *opt_force_featureset(const char *optarg,
 				  struct lightningd *ld)
 {
 	char **parts = tal_strsplit(tmpctx, optarg, "/", STR_EMPTY_OK);
-	if (tal_count(parts) != NUM_FEATURE_PLACE) {
+	if (tal_count(parts) != NUM_FEATURE_PLACE + 1) {
 		if (!strstarts(optarg, "-") && !strstarts(optarg, "+"))
-			return "Expected 5 feature sets (init, globalinit,"
-			       " node_announce, channel, bolt11) separated"
-			       " by / OR +/-<feature_num>";
+			return "Expected 5 feature sets (init/globalinit/"
+			       " node_announce/channel/bolt11) each terminated by /"
+			       " OR +/-<single_bit_num>";
 
 		char *endp;
 		long int n = strtol(optarg + 1, &endp, 10);
@@ -712,7 +726,7 @@ static void dev_register_opts(struct lightningd *ld)
 				 &ld->plugins->dev_builtin_plugins_unimportant,
 				 "Make builtin plugins unimportant so you can plugin stop them.");
 	opt_register_arg("--dev-force-features", opt_force_featureset, NULL, ld,
-			 "Force the init/globalinit/node_announce/channel/bolt11 features, each comma-separated bitnumbers");
+			 "Force the init/globalinit/node_announce/channel/bolt11/ features, each comma-separated bitnumbers OR a single +/-<bitnumber>");
 	opt_register_arg("--dev-timeout-secs", opt_set_u32, opt_show_u32,
 			 &ld->config.connection_timeout_secs,
 			 "Seconds to timeout if we don't receive INIT from peer");
@@ -726,6 +740,9 @@ static void dev_register_opts(struct lightningd *ld)
 			 opt_set_intval, opt_show_intval,
 			 &ld->dev_disable_commit,
 			 "Disable commit timer after this many commits");
+	opt_register_noarg("--dev-no-ping-timer", opt_set_bool,
+			   &ld->dev_no_ping_timer,
+			   "Don't hang up if we don't get a ping response");
 }
 #endif /* DEVELOPER */
 
@@ -742,6 +759,10 @@ static const struct config testnet_config = {
 
 	/* Testnet blockspace is free. */
 	.max_concurrent_htlcs = 483,
+
+	/* channel defaults for htlc min/max values */
+	.htlc_minimum_msat = AMOUNT_MSAT(0),
+	.htlc_maximum_msat = AMOUNT_MSAT(-1ULL),  /* no limit */
 
 	/* Max amount of dust allowed per channel (50ksat) */
 	.max_dust_htlc_exposure_msat = AMOUNT_MSAT(50000000),
@@ -765,6 +786,9 @@ static const struct config testnet_config = {
 	.rescan = 30,
 
 	.use_dns = true,
+
+	/* Turn off IP address announcement discovered via peer `remote_addr` */
+	.disable_ip_discovery = false,
 
 	/* Sets min_effective_htlc_capacity - at 1000$/BTC this is 10ct */
 	.min_capacity_sat = 10000,
@@ -791,6 +815,10 @@ static const struct config mainnet_config = {
 
 	/* While up to 483 htlcs are possible we do 30 by default (as eclair does) to save blockspace */
 	.max_concurrent_htlcs = 30,
+
+	/* defaults for htlc min/max values */
+	.htlc_minimum_msat = AMOUNT_MSAT(0),
+	.htlc_maximum_msat = AMOUNT_MSAT(-1ULL),  /* no limit */
 
 	/* Max amount of dust allowed per channel (50ksat) */
 	.max_dust_htlc_exposure_msat = AMOUNT_MSAT(50000000),
@@ -824,6 +852,9 @@ static const struct config mainnet_config = {
 	.rescan = 15,
 
 	.use_dns = true,
+
+	/* Turn off IP address announcement discovered via peer `remote_addr` */
+	.disable_ip_discovery = false,
 
 	/* Sets min_effective_htlc_capacity - at 1000$/BTC this is 10ct */
 	.min_capacity_sat = 10000,
@@ -1088,6 +1119,12 @@ static void register_opts(struct lightningd *ld)
 	opt_register_arg("--fee-per-satoshi", opt_set_u32, opt_show_u32,
 			 &ld->config.fee_per_satoshi,
 			 "Microsatoshi fee for every satoshi in HTLC");
+	opt_register_arg("--htlc-minimum-msat", opt_set_msat, NULL,
+			 &ld->config.htlc_minimum_msat,
+			 "The default minimal value an HTLC must carry in order to be forwardable for new channels");
+	opt_register_arg("--htlc-maximum-msat", opt_set_msat, NULL,
+			 &ld->config.htlc_maximum_msat,
+			 "The default maximal value an HTLC must carry in order to be forwardable for new channel");
 	opt_register_arg("--max-concurrent-htlcs", opt_set_u32, opt_show_u32,
 			 &ld->config.max_concurrent_htlcs,
 			 "Number of HTLCs one channel can handle concurrently. Should be between 1 and 483");
@@ -1106,6 +1143,9 @@ static void register_opts(struct lightningd *ld)
 	opt_register_arg("--announce-addr", opt_add_announce_addr, NULL,
 			 ld,
 			 "Set an IP address (v4 or v6) or .onion v3 to announce, but not listen on");
+	opt_register_noarg("--disable-ip-discovery", opt_set_bool,
+			 &ld->config.disable_ip_discovery,
+			 "Turn off announcement of discovered public IPs");
 
 	opt_register_noarg("--offline", opt_set_offline, ld,
 			   "Start in offline-mode (do not automatically reconnect and do not accept incoming connections)");

@@ -16,6 +16,9 @@
 # Subtypes:
 #   subtype,<subtypename>
 #   subtypedata,<subtypename>,<fieldname>,<typename>,[<count>]
+#
+# Note: <count> can be a fixed value, a named value read before,
+#       or '...' to read until the end of the current structure.
 
 from argparse import ArgumentParser, REMAINDER
 from collections import OrderedDict
@@ -225,6 +228,7 @@ class Type(FieldSet):
         'gossip_getchannels_entry',
         'failed_htlc',
         'existing_htlc',
+        'simple_htlc',
         'utxo',
         'bitcoin_tx',
         'wirestring',
@@ -354,7 +358,7 @@ class Type(FieldSet):
     def is_varsize(self):
         """ A type is variably sized if it's marked as such (in varsize_types)
             or it contains a field of variable length """
-        return self.name in self.varsize_types or self.has_len_fields()
+        return self.name in self.varsize_types or self.has_len_fields() or self.is_tlv()
 
     def add_comments(self, comments):
         self.type_comments = comments
@@ -397,7 +401,7 @@ class Message(FieldSet):
 
 class Tlv(object):
     def __init__(self, name):
-        self.name = name
+        self.name = 'tlv_' + name
         self.messages = {}
 
     def add_message(self, tokens, comments=[]):
@@ -411,7 +415,7 @@ class Tlv(object):
         return 'struct ' + self.struct_name()
 
     def struct_name(self):
-        return "tlv_{}".format(self.name)
+        return self.name
 
     def find_message(self, name):
         return self.messages[name]

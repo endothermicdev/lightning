@@ -206,7 +206,7 @@ def throttler(test_base_dir):
     yield Throttler(test_base_dir)
 
 
-def _extra_validator():
+def _extra_validator(is_request: bool):
     """JSON Schema validator with additions for our specialized types"""
     def is_hex(checker, instance):
         """Hex string"""
@@ -266,6 +266,48 @@ def _extra_validator():
                 and txnum >= 0 and txnum < 2**24
                 and outnum >= 0 and outnum < 2**16)
 
+    def is_short_channel_id_dir(checker, instance):
+        """Short channel id with direction"""
+        if not checker.is_type(instance, "string"):
+            return False
+        if not instance.endswith("/0") and not instance.endswith("/1"):
+            return False
+        return is_short_channel_id(checker, instance[:-2])
+
+    def is_outpoint(checker, instance):
+        """Outpoint: txid and outnum"""
+        if not checker.is_type(instance, "string"):
+            return False
+        parts = instance.split(":")
+        if len(parts) != 2:
+            return False
+        if len(parts[0]) != 64 or any(c not in string.hexdigits for c in parts[0]):
+            return False
+        try:
+            outnum = int(parts[1])
+        except ValueError:
+            return False
+        return outnum < 2**32
+
+    def is_feerate(checker, instance):
+        """feerate string or number (optionally ending in perkw/perkb)"""
+        if checker.is_type(instance, "integer"):
+            return True
+        if not checker.is_type(instance, "string"):
+            return False
+        if instance in ("urgent", "normal", "slow"):
+            return True
+        if instance in ("opening", "mutual_close", "unilateral_close", "delayed_to_us", "htlc_resolution", "penalty", "min_acceptable", "max_acceptable"):
+            return True
+        if not instance.endswith("perkw") and not instance.endswith("perkb"):
+            return False
+
+        try:
+            int(instance.rpartition("per")[0])
+        except ValueError:
+            return False
+        return True
+
     def is_pubkey(checker, instance):
         """SEC1 encoded compressed pubkey"""
         if not checker.is_type(instance, "hex"):
@@ -273,6 +315,13 @@ def _extra_validator():
         if len(instance) != 66:
             return False
         return instance[0:2] == "02" or instance[0:2] == "03"
+
+    def is_32byte_hex(self, instance):
+        """Fixed size 32 byte hex string
+
+        This matches a variety of hex types: secrets, hashes, txid
+        """
+        return self.is_type(instance, "hex") and len(instance) == 64
 
     def is_point32(checker, instance):
         """x-only BIP-340 public key"""
@@ -298,7 +347,15 @@ def _extra_validator():
             return False
         return True
 
-    def is_msat(checker, instance):
+    def is_msat_request(checker, instance):
+        """msat fields can be raw integers, sats, btc."""
+        try:
+            Millisatoshi(instance)
+            return True
+        except TypeError:
+            return False
+
+    def is_msat_response(checker, instance):
         """String number ending in msat"""
         return type(instance) is Millisatoshi
 
@@ -308,34 +365,71 @@ def _extra_validator():
             return False
         return len(instance) == 64
 
+    def is_outputdesc(checker, instance):
+        """Bitcoin-style output object, keys = destination, values = amount"""
+        if not checker.is_type(instance, "object"):
+            return False
+        for k, v in instance.items():
+            if not checker.is_type(k, "string"):
+                return False
+            if v != "all":
+                if not is_msat_request(checker, v):
+                    return False
+        return True
+
+    def is_msat_or_all(checker, instance):
+        """msat field, or 'all'"""
+        if instance == "all":
+            return True
+        return is_msat_request(checker, instance)
+
+    def is_msat_or_any(checker, instance):
+        """msat field, or 'any'"""
+        if instance == "any":
+            return True
+        return is_msat_request(checker, instance)
+
+    # "msat" for request can be many forms
+    if is_request:
+        is_msat = is_msat_request
+    else:
+        is_msat = is_msat_response
     type_checker = jsonschema.Draft7Validator.TYPE_CHECKER.redefine_many({
         "hex": is_hex,
+        "hash": is_32byte_hex,
+        "secret": is_32byte_hex,
         "u64": is_u64,
         "u32": is_u32,
         "u16": is_u16,
         "u8": is_u8,
         "pubkey": is_pubkey,
         "msat": is_msat,
+        "msat_or_all": is_msat_or_all,
+        "msat_or_any": is_msat_or_any,
         "txid": is_txid,
         "signature": is_signature,
         "bip340sig": is_bip340sig,
         "point32": is_point32,
         "short_channel_id": is_short_channel_id,
+        "short_channel_id_dir": is_short_channel_id_dir,
+        "outpoint": is_outpoint,
+        "feerate": is_feerate,
+        "outputdesc": is_outputdesc,
     })
 
     return jsonschema.validators.extend(jsonschema.Draft7Validator,
                                         type_checker=type_checker)
 
 
-def _load_schema(filename):
+def _load_schema(filename, is_request):
     """Load the schema from @filename and create a validator for it"""
     with open(filename, 'r') as f:
-        return _extra_validator()(json.load(f))
+        return _extra_validator(is_request)(json.load(f))
 
 
 @pytest.fixture(autouse=True)
 def jsonschemas():
-    """Load schema files if they exist"""
+    """Load schema files if they exist: returns request/response schemas by pairs"""
     try:
         schemafiles = os.listdir('doc/schemas')
     except FileNotFoundError:
@@ -343,10 +437,20 @@ def jsonschemas():
 
     schemas = {}
     for fname in schemafiles:
-        if not fname.endswith('.schema.json'):
+        if fname.endswith('.schema.json'):
+            base = fname.rpartition('.schema')[0]
+            is_request = False
+            index = 1
+        elif fname.endswith('.request.json'):
+            base = fname.rpartition('.request')[0]
+            is_request = True
+            index = 0
+        else:
             continue
-        schemas[fname.rpartition('.schema')[0]] = _load_schema(os.path.join('doc/schemas',
-                                                                            fname))
+        if base not in schemas:
+            schemas[base] = [None, None]
+        schemas[base][index] = _load_schema(os.path.join('doc/schemas', fname),
+                                            is_request)
     return schemas
 
 

@@ -9,8 +9,6 @@
 #include <wire/wire.h>
 #include <bitcoin/tx.h>
 
-#define SEGREGATED_WITNESS_FLAG 0x1
-
 struct bitcoin_tx_output *new_tx_output(const tal_t *ctx,
 					struct amount_sat amount,
 					const u8 *script)
@@ -56,12 +54,12 @@ struct wally_tx_output *wally_tx_output(const tal_t *ctx,
 	}
 
 done:
-	tal_wally_end(tal_steal(ctx, output));
+	tal_wally_end_onto(ctx, output, struct wally_tx_output);
 	return output;
 }
 
 int bitcoin_tx_add_output(struct bitcoin_tx *tx, const u8 *script,
-			  u8 *wscript, struct amount_sat amount)
+			  const u8 *wscript, struct amount_sat amount)
 {
 	size_t i = tx->wtx->num_outputs;
 	struct wally_tx_output *output;
@@ -199,7 +197,7 @@ int bitcoin_tx_add_input(struct bitcoin_tx *tx,
 			  input_wscript, NULL);
 
 	if (input_wscript) {
-		scriptPubkey = scriptpubkey_p2wsh(tx->psbt, input_wscript);
+		scriptPubkey = scriptpubkey_p2wsh(tmpctx, input_wscript);
 	}
 
 	assert(scriptPubkey);
@@ -522,7 +520,7 @@ struct bitcoin_tx *bitcoin_tx(const tal_t *ctx,
 	wally_tx_init_alloc(WALLY_TX_VERSION_2, nlocktime, input_count, output_count,
 			    &tx->wtx);
 	tal_add_destructor(tx, bitcoin_tx_destroy);
-	tal_wally_end(tal_steal(tx, tx->wtx));
+	tal_wally_end_onto(tx, tx->wtx, struct wally_tx);
 
 	tx->chainparams = chainparams;
 	tx->psbt = new_psbt(tx, tx->wtx);
@@ -550,7 +548,7 @@ struct bitcoin_tx *bitcoin_tx_with_psbt(const tal_t *ctx, struct wally_psbt *psb
 		tal_wally_start();
 		if (wally_tx_clone_alloc(psbt->tx, 0, &tx->wtx) != WALLY_OK)
 			tx->wtx = NULL;
-		tal_wally_end(tal_steal(tx, tx->wtx));
+		tal_wally_end_onto(tx, tx->wtx, struct wally_tx);
 		if (!tx->wtx)
 			return tal_free(tx);
 	}
@@ -576,7 +574,7 @@ static struct wally_tx *pull_wtx(const tal_t *ctx,
 		fromwire_fail(cursor, max);
 		wtx = tal_free(wtx);
 	}
-	tal_wally_end(tal_steal(ctx, wtx));
+	tal_wally_end_onto(ctx, wtx, struct wally_tx);
 
 	if (wtx) {
 		size_t wsize;

@@ -84,9 +84,11 @@ unreserve_done(struct command *cmd UNUSED,
 		   json_tok_full_len(result),
 		   json_tok_full(buf, result));
 
+	tal_free(open);
 	return command_done();
 }
 
+/* Frees open (eventually, in unreserve_done callback) */
 static void unreserve_psbt(struct pending_open *open)
 {
 	struct out_req *req;
@@ -102,6 +104,11 @@ static void unreserve_psbt(struct pending_open *open)
 				    open);
 	json_add_psbt(req->js, "psbt", open->psbt);
 	send_outreq(open->p, req);
+
+	/* We will free this in callback, but remove from list *now*
+	 * to avoid calling twice! */
+	list_del_from(&pending_opens, &open->list);
+	notleak(open);
 }
 
 static void cleanup_peer_pending_opens(const struct node_id *id)
@@ -110,22 +117,8 @@ static void cleanup_peer_pending_opens(const struct node_id *id)
 	list_for_each_safe(&pending_opens, i, next, list) {
 		if (node_id_eq(&i->peer_id, id)) {
 			unreserve_psbt(i);
-			list_del(&i->list);
 		}
 	}
-}
-
-static struct pending_open *
-cleanup_channel_pending_open(const struct channel_id *cid)
-{
-	struct pending_open *open;
-	open = find_channel_pending_open(cid);
-
-	if (!open)
-		return NULL;
-
-	list_del(&open->list);
-	return open;
 }
 
 static struct command_result *
@@ -162,7 +155,10 @@ signpsbt_done(struct command *cmd,
 			   err, json_tok_full_len(result),
 			   json_tok_full(buf, result));
 
-	cleanup_channel_pending_open(&open->channel_id);
+	/* This finishes the open (successfully!) */
+	list_del_from(&pending_opens, &open->list);
+	tal_free(open);
+
 	return command_hook_cont_psbt(cmd, signed_psbt);
 }
 
@@ -459,7 +455,6 @@ listfunds_success(struct command *cmd,
 				    &psbt_funded,
 				    &psbt_fund_failed,
 				    info);
-	json_add_bool(req->js, "reserve", true);
 	json_add_string(req->js, "satoshi",
 			type_to_string(tmpctx, struct amount_sat,
 				       &info->our_funding));
@@ -757,7 +752,7 @@ static struct command_result *json_channel_open_failed(struct command *cmd,
 		   "Cleaning up inflight for channel_id %s",
 		   type_to_string(tmpctx, struct channel_id, &cid));
 
-	open = cleanup_channel_pending_open(&cid);
+	open = find_channel_pending_open(&cid);
 	if (open)
 		unreserve_psbt(open);
 
@@ -1263,7 +1258,7 @@ int main(int argc, char **argv)
 		    plugin_option("funder-fuzz-percent",
 				  "int",
 				  "Percent to fuzz the policy contribution by."
-				  " Defaults to 5%. Max is 100%",
+				  " Defaults to 0%. Max is 100%",
 				  u32_option,
 				  &current_policy->fuzz_factor),
 		    plugin_option("funder-fund-probability",
@@ -1280,7 +1275,12 @@ int main(int argc, char **argv)
 				  " being advertised",
 				  bool_option,
 				  &current_policy->leases_only),
-		    plugin_option("lease-fee-base-msat",
+		    plugin_option("lease-fee-base-sat",
+				  "string",
+				  "Channel lease rates, base fee for leased"
+				  " funds, in satoshi.",
+				  option_lease_fee_base, current_policy),
+		    plugin_option_deprecated("lease-fee-base-msat",
 				  "string",
 				  "Channel lease rates, base fee for leased"
 				  " funds, in satoshi.",

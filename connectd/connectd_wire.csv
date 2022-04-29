@@ -1,4 +1,5 @@
 #include <bitcoin/block.h>
+#include <common/channel_id.h>
 #include <common/cryptomsg.h>
 #include <common/features.h>
 #include <common/node_id.h>
@@ -21,16 +22,19 @@ msgdata,connectd_init,use_v3_autotor,bool,
 msgdata,connectd_init,timeout_secs,u32,
 msgdata,connectd_init,websocket_helper,wirestring,
 msgdata,connectd_init,websocket_port,u16,
+msgdata,connectd_init,announce_websocket,bool,
 msgdata,connectd_init,dev_fast_gossip,bool,
 # If this is set, then fd 5 is dev_disconnect_fd.
 msgdata,connectd_init,dev_disconnect,bool,
+msgdata,connectd_init,dev_no_ping_timer,bool,
 
 # Connectd->master, here are the addresses I bound, can announce.
 msgtype,connectd_init_reply,2100
 msgdata,connectd_init_reply,num_bindings,u16,
 msgdata,connectd_init_reply,bindings,wireaddr_internal,num_bindings
-msgdata,connectd_init_reply,num_announcable,u16,
-msgdata,connectd_init_reply,announcable,wireaddr,num_announcable
+msgdata,connectd_init_reply,num_announceable,u16,
+msgdata,connectd_init_reply,announceable,wireaddr,num_announceable
+msgdata,connectd_init_reply,failmsg,?wirestring,
 
 # Activate the connect daemon, so others can connect.
 msgtype,connectd_activate,2025
@@ -39,6 +43,7 @@ msgdata,connectd_activate,listen,bool,
 
 # Connectd->master, I am ready.
 msgtype,connectd_activate_reply,2125
+msgdata,connectd_activate_reply,failmsg,?wirestring,
 
 # connectd->master: disconnect this peer please (due to reconnect).
 msgtype,connectd_reconnected,2112
@@ -60,23 +65,44 @@ msgdata,connectd_connect_failed,failreason,wirestring,
 msgdata,connectd_connect_failed,seconds_to_delay,u32,
 msgdata,connectd_connect_failed,addrhint,?wireaddr_internal,
 
-# Connectd -> master: we got a peer. Plus fd for peer daemon
+# Connectd -> master: we got a peer.
 msgtype,connectd_peer_connected,2002
 msgdata,connectd_peer_connected,id,node_id,
 msgdata,connectd_peer_connected,addr,wireaddr_internal,
+msgdata,connectd_peer_connected,remote_addr,?wireaddr,
 msgdata,connectd_peer_connected,incoming,bool,
 msgdata,connectd_peer_connected,flen,u16,
 msgdata,connectd_peer_connected,features,u8,flen
 
-# master -> connectd: peer has disconnected.
-msgtype,connectd_peer_disconnected,2015
-msgdata,connectd_peer_disconnected,id,node_id,
+# connectd -> master: peer disconnected.
+msgtype,connectd_peer_disconnect_done,2006
+msgdata,connectd_peer_disconnect_done,id,node_id,
 
-# master -> connectd: give message to peer and disconnect. 
+# Master -> connectd: make peer active immediately (we want to talk)
+msgtype,connectd_peer_make_active,2004
+msgdata,connectd_peer_make_active,id,node_id,
+msgdata,connectd_peer_make_active,channel_id,channel_id,
+
+# Connectd -> master: peer said something interesting (or you said make_active)
+# Plus fd for peer daemon.
+msgtype,connectd_peer_active,2005
+msgdata,connectd_peer_active,id,node_id,
+msgdata,connectd_peer_active,msgtype,?u16,
+msgdata,connectd_peer_active,channel_id,channel_id,
+
+# master -> connectd: peer no longer wanted, you can disconnect.
+msgtype,connectd_discard_peer,2015
+msgdata,connectd_discard_peer,id,node_id,
+
+# master -> connectd: give message to peer and disconnect.
 msgtype,connectd_peer_final_msg,2003
 msgdata,connectd_peer_final_msg,id,node_id,
 msgdata,connectd_peer_final_msg,len,u16,
 msgdata,connectd_peer_final_msg,msg,u8,len
+
+# connectd->master: You said to connect, but we already were.
+msgtype,connectd_peer_already_connected,2007
+msgdata,connectd_peer_already_connected,id,node_id,
 
 # master -> connectd: do you have a memleak?
 msgtype,connectd_dev_memleak,2033
@@ -128,3 +154,7 @@ msgtype,connectd_custommsg_out,2011
 msgdata,connectd_custommsg_out,id,node_id,
 msgdata,connectd_custommsg_out,msg_len,u16,
 msgdata,connectd_custommsg_out,msg,u8,msg_len
+
+# master -> connect: stop sending gossip.
+msgtype,connectd_dev_suppress_gossip,2032
+

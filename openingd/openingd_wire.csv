@@ -25,12 +25,6 @@ msgdata,openingd_init,min_feerate,u32,
 msgdata,openingd_init,max_feerate,u32,
 msgdata,openingd_init,dev_temporary_channel_id,?byte,32
 
-# Openingd->master: they tried to reestablish a channel.
-msgtype,openingd_got_reestablish,6001
-msgdata,openingd_got_reestablish,channel_id,channel_id,
-msgdata,openingd_got_reestablish,len,u16,
-msgdata,openingd_got_reestablish,msg,u8,len
-
 # Openingd->master: they offered channel, should we continue?
 msgtype,openingd_got_offer,6005
 msgdata,openingd_got_offer,funding_satoshis,amount_sat,
@@ -83,6 +77,7 @@ msgdata,openingd_funder_start,len_upfront,u16,
 msgdata,openingd_funder_start,upfront_shutdown_script,u8,len_upfront
 msgdata,openingd_funder_start,upfront_shutdown_wallet_index,?u32,
 msgdata,openingd_funder_start,feerate_per_kw,u32,
+msgdata,openingd_funder_start,temporary_channel_id,channel_id,
 msgdata,openingd_funder_start,channel_flags,u8,
 
 # openingd->master: send back output script for 2-of-2 funding output
@@ -104,8 +99,8 @@ msgdata,openingd_funder_complete,channel_type,channel_type,
 msgtype,openingd_funder_cancel,6013
 
 # Openingd->master: we failed to negotiation channel
-msgtype,openingd_funder_failed,6004
-msgdata,openingd_funder_failed,reason,wirestring,
+msgtype,openingd_failed,6004
+msgdata,openingd_failed,reason,wirestring,
 
 # Openingd->master: they offered channel.
 # This gives their txid and info, means we can send funding_signed: we're done.

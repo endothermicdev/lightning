@@ -333,7 +333,7 @@ def test_htlc_out_timeout(node_factory, bitcoind, executor):
     inv = l2.rpc.invoice(amt, 'test_htlc_out_timeout', 'desc')['bolt11']
     assert only_one(l2.rpc.listinvoices('test_htlc_out_timeout')['invoices'])['status'] == 'unpaid'
 
-    executor.submit(l1.rpc.dev_pay, inv, use_shadow=False)
+    executor.submit(l1.dev_pay, inv, use_shadow=False)
 
     # l1 will disconnect, and not reconnect.
     l1.daemon.wait_for_log('dev_disconnect: -WIRE_REVOKE_AND_ACK')
@@ -400,7 +400,7 @@ def test_htlc_in_timeout(node_factory, bitcoind, executor):
     inv = l2.rpc.invoice(amt, 'test_htlc_in_timeout', 'desc')['bolt11']
     assert only_one(l2.rpc.listinvoices('test_htlc_in_timeout')['invoices'])['status'] == 'unpaid'
 
-    executor.submit(l1.rpc.dev_pay, inv, use_shadow=False)
+    executor.submit(l1.dev_pay, inv, use_shadow=False)
 
     # l1 will disconnect and not reconnect.
     l1.daemon.wait_for_log('dev_disconnect: -WIRE_REVOKE_AND_ACK')
@@ -452,7 +452,7 @@ def test_bech32_funding(node_factory, chainparams):
     wallettxid = res['wallettxid']
 
     wallettx = l1.bitcoin.rpc.getrawtransaction(wallettxid, True)
-    fundingtx = l1.bitcoin.rpc.decoderawtransaction(res['fundingtx']['tx'])
+    fundingtx = l1.bitcoin.rpc.decoderawtransaction(res['fundingtx'])
 
     def is_p2wpkh(output):
         return output['type'] == 'witness_v0_keyhash' and \
@@ -493,6 +493,7 @@ def test_withdraw_misc(node_factory, bitcoind, chainparams):
 
     waddr = l1.bitcoin.getnewaddress()
     # Now attempt to withdraw some (making sure we collect multiple inputs)
+    l1.rpc.check_request_schemas = False
     with pytest.raises(RpcError):
         l1.rpc.withdraw('not an address', amount)
     with pytest.raises(RpcError):
@@ -501,6 +502,7 @@ def test_withdraw_misc(node_factory, bitcoind, chainparams):
         l1.rpc.withdraw(waddr, -amount)
     with pytest.raises(RpcError, match=r'Could not afford'):
         l1.rpc.withdraw(waddr, amount * 100)
+    l1.rpc.check_request_schemas = True
 
     out = l1.rpc.withdraw(waddr, amount)
 
@@ -1155,7 +1157,7 @@ def test_funding_reorg_remote_lags(node_factory, bitcoind):
 
     # Reorg changes short_channel_id 103x1x0 to 104x1x0, l1 sees it, restarts channeld
     bitcoind.simple_reorg(103, 1)                   # heights 103 - 108
-    # But now it's height 104, we need another block to make it announcable.
+    # But now it's height 104, we need another block to make it announceable.
     bitcoind.generate_block(1)
     l1.daemon.wait_for_log(r'Peer transient failure .* short_channel_id changed to 104x1x0 \(was 103x1x0\)')
 
@@ -1303,7 +1305,7 @@ def test_reserve_enforcement(node_factory, executor):
         'Peer transient failure in CHANNELD_NORMAL: channeld.*'
         ' CHANNEL_ERR_CHANNEL_CAPACITY_EXCEEDED'
     )
-    assert only_one(l1.rpc.listpeers()['peers'])['connected'] is False
+    wait_for(lambda: only_one(l1.rpc.listpeers()['peers'])['connected'] is False)
 
 
 def test_ipv4_and_ipv6(node_factory):
@@ -1516,6 +1518,7 @@ def test_configfile_before_chdir(node_factory):
 def test_json_error(node_factory):
     """Must return valid json even if it quotes our weirdness"""
     l1 = node_factory.get_node()
+    l1.rpc.check_request_schemas = False
     with pytest.raises(RpcError, match=r'id: should be a channel ID or short channel ID: invalid token'):
         l1.rpc.close({"tx": "020000000001011490f737edd2ea2175a032b58ea7cd426dfc244c339cd044792096da3349b18a0100000000ffffffff021c900300000000001600140e64868e2f752314bc82a154c8c5bf32f3691bb74da00b00000000002200205b8cd3b914cf67cdd8fa6273c930353dd36476734fbd962102c2df53b90880cd0247304402202b2e3195a35dc694bbbc58942dc9ba59cc01d71ba55c9b0ad0610ccd6a65633702201a849254453d160205accc00843efb0ad1fe0e186efa6a7cee1fb6a1d36c736a012103d745445c9362665f22e0d96e9e766f273f3260dea39c8a76bfa05dd2684ddccf00000000", "txid": "2128c10f0355354479514f4a23eaa880d94e099406d419bbb0d800143accddbb", "channel_id": "bbddcc3a1400d8b0bb19d40694094ed980a8ea234a4f5179443555030fc12820"})
 
@@ -1784,7 +1787,7 @@ def test_list_features_only(node_factory):
     expected = ['option_data_loss_protect/odd',
                 'option_upfront_shutdown_script/odd',
                 'option_gossip_queries/odd',
-                'option_var_onion_optin/odd',
+                'option_var_onion_optin/even',
                 'option_gossip_queries_ex/odd',
                 'option_static_remotekey/odd',
                 'option_payment_secret/even',
@@ -2337,6 +2340,7 @@ def test_listforwards(node_factory, bitcoind):
     assert len(c24_forwards) == 1
 
 
+@pytest.mark.openchannel('v1')
 def test_version_reexec(node_factory, bitcoind):
     badopeningd = os.path.join(os.path.dirname(__file__), "plugins", "badopeningd.sh")
     version = subprocess.check_output(['lightningd/lightningd',
@@ -2358,7 +2362,12 @@ def test_version_reexec(node_factory, bitcoind):
                               'fff6'))          # type
         f.write(bytes('badversion\0', encoding='utf8'))
 
+    # Opening a channel will fire subd.
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
+    try:
+        l1.fundchannel(l2)
+    except RpcError:
+        pass
 
     l1.daemon.wait_for_log("openingd.*version 'badversion' not '{}': restarting".format(version))
 

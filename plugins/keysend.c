@@ -1,8 +1,10 @@
 #include "config.h"
 #include <ccan/array_size/array_size.h>
 #include <ccan/asort/asort.h>
+#include <ccan/cast/cast.h>
 #include <ccan/tal/str/str.h>
 #include <common/json_tok.h>
+#include <common/memleak.h>
 #include <common/type_to_string.h>
 #include <plugins/libplugin-pay.h>
 #include <sodium.h>
@@ -62,14 +64,7 @@ static void keysend_cb(struct keysend_data *d, struct payment *p) {
 	size_t hopcount;
 
 	/* On the root payment we perform the featurebit check. */
-	if (p->parent == NULL && p->step == PAYMENT_STEP_INITIALIZED) {
-		if (!payment_root(p)->destination_has_tlv)
-			return payment_fail(
-			    p,
-			    "Recipient %s does not support keysend payments "
-			    "(no TLV support)",
-			    node_id_to_hexstr(tmpctx, p->destination));
-	} else if (p->step == PAYMENT_STEP_FAILED) {
+	if (p->step == PAYMENT_STEP_FAILED) {
 		/* Now we can look at the error, and the failing node,
 		   and determine whether they didn't like our
 		   attempt. This is required since most nodes don't
@@ -183,14 +178,16 @@ static struct command_result *json_keysend(struct command *cmd, const char *buf,
 	p->json_buffer = tal_dup_talarr(p, const char, buf);
 	p->json_toks = params;
 	p->destination = tal_steal(p, destination);
-	p->destination_has_tlv = true;
 	p->payment_secret = NULL;
+	p->payment_metadata = NULL;
 	p->amount = *msat;
 	p->routes = tal_steal(p, hints);
 	// 22 is the Rust-Lightning default and the highest minimum we know of.
 	p->min_final_cltv_expiry = 22;
 	p->features = NULL;
 	p->invstring = NULL;
+	/* Don't try to use invstring to hand to sendonion! */
+	p->invstring_used = true;
 	p->why = "Initial attempt";
 	p->constraints.cltv_budget = *maxdelay;
 	p->deadline = timeabs_add(time_now(), time_from_sec(*retryfor));
@@ -223,7 +220,7 @@ static struct command_result *json_keysend(struct command *cmd, const char *buf,
 	p->label = tal_steal(p, label);
 	payment_start(p);
 	/* We're keeping this around now */
-	tal_steal(cmd->plugin, p);
+	tal_steal(cmd->plugin, notleak(p));
 	return command_still_pending(cmd);
 }
 
@@ -349,6 +346,9 @@ static struct command_result *htlc_accepted_call(struct command *cmd,
 	struct out_req *req;
 	struct timeabs now = time_now();
 	const char *err;
+	u64 *allowed;
+	size_t err_off;
+	u64 err_type;
 
 	err = json_scan(tmpctx, buf, params,
 			"{onion:{payload:%},htlc:{payment_hash:%}}",
@@ -358,15 +358,27 @@ static struct command_result *htlc_accepted_call(struct command *cmd,
 		return htlc_accepted_continue(cmd, NULL);
 
 	max = tal_bytelen(rawpayload);
-	payload = tlv_tlv_payload_new(cmd);
 
 	s = fromwire_bigsize(&rawpayload, &max);
 	if (s != max) {
 		return htlc_accepted_continue(cmd, NULL);
 	}
-	if (!fromwire_tlv_payload(&rawpayload, &max, payload)) {
+
+#if EXPERIMENTAL_FEATURES
+	/* Note: This is a magic pointer value, not an actual array */
+	allowed = cast_const(u64 *, FROMWIRE_TLV_ANY_TYPE);
+#else
+	/* We explicitly allow our type. */
+	allowed = tal_arr(cmd, u64, 1);
+	allowed[0] = PREIMAGE_TLV_TYPE;
+#endif
+
+	payload = tlv_tlv_payload_new(cmd);
+	if (!fromwire_tlv(&rawpayload, &max, tlvs_tlv_tlv_payload, TLVS_ARRAY_SIZE_tlv_tlv_payload,
+			  payload, &payload->fields, allowed, &err_off, &err_type)) {
 		plugin_log(
-		    cmd->plugin, LOG_UNUSUAL, "Malformed TLV payload %.*s",
+		    cmd->plugin, LOG_UNUSUAL, "Malformed TLV payload type %"PRIu64" at off %zu %.*s",
+		    err_type, err_off,
 		    json_tok_full_len(params),
 		    json_tok_full(buf, params));
 		return htlc_accepted_continue(cmd, NULL);
@@ -379,6 +391,7 @@ static struct command_result *htlc_accepted_call(struct command *cmd,
 			preimage_field = field;
 			break;
 		} else if (field->numtype % 2 == 0 && field->meta == NULL) {
+			/* This can only happen with FROMWIRE_TLV_ANY_TYPE! */
 			unknown_field = field;
 		}
 	}
@@ -389,19 +402,10 @@ static struct command_result *htlc_accepted_call(struct command *cmd,
 		return htlc_accepted_continue(cmd, NULL);
 
 	if (unknown_field != NULL) {
-#if !EXPERIMENTAL_FEATURES
-		plugin_log(cmd->plugin, LOG_UNUSUAL,
-			   "Payload contains unknown even TLV-type %" PRIu64
-			   ", can't safely accept the keysend. Deferring to "
-			   "other plugins.",
-			   unknown_field->numtype);
-		return htlc_accepted_continue(cmd, NULL);
-#else
 		plugin_log(cmd->plugin, LOG_INFORM,
 			   "Experimental: Accepting the keysend payment "
 			   "despite having unknown even TLV type %" PRIu64 ".",
 			   unknown_field->numtype);
-#endif
 	}
 
 	/* If malformed (amt is compulsory), let lightningd handle it. */

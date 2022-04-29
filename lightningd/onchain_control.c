@@ -2,6 +2,7 @@
 #include <bitcoin/feerate.h>
 #include <common/key_derive.h>
 #include <common/type_to_string.h>
+#include <db/exec.h>
 #include <errno.h>
 #include <hsmd/capabilities.h>
 #include <inttypes.h>
@@ -14,6 +15,7 @@
 #include <lightningd/subd.h>
 #include <onchaind/onchaind_wiregen.h>
 #include <wallet/txfilter.h>
+#include <wally_bip32.h>
 
 /* We dump all the known preimages when onchaind starts up. */
 static void onchaind_tell_fulfill(struct channel *channel)
@@ -265,7 +267,7 @@ static void handle_onchain_log_coin_move(struct channel *channel, const u8 *msg)
 	if (!mvt->account_name)
 		mvt->account_name = type_to_string(mvt, struct channel_id,
 						   &channel->cid);
-	else if (chain_mvt_is_external(mvt))
+	else
 		mvt->originating_acct = type_to_string(mvt, struct channel_id,
 						       &channel->cid);
 	notify_chain_mvt(channel->peer->ld, mvt);
@@ -388,6 +390,14 @@ static void handle_missing_htlc_output(struct channel *channel, const u8 *msg)
 		return;
 	}
 
+	/* We only set tell_if_missing on LOCAL htlcs */
+	if (htlc.owner != LOCAL) {
+		channel_internal_error(channel,
+				       "onchaind_missing_htlc_output: htlc %"PRIu64" is not local!",
+				       htlc.id);
+		return;
+	}
+
 	/* BOLT #5:
 	 *
 	 *   - for any committed HTLC that does NOT have an output in this
@@ -398,7 +408,7 @@ static void handle_missing_htlc_output(struct channel *channel, const u8 *msg)
 	 *       corresponding to the HTLC.
 	 *       - MAY fail the corresponding incoming HTLC sooner.
 	 */
-	onchain_failed_our_htlc(channel, &htlc, "missing in commitment tx");
+	onchain_failed_our_htlc(channel, &htlc, "missing in commitment tx", false);
 }
 
 static void handle_onchain_htlc_timeout(struct channel *channel, const u8 *msg)
@@ -410,6 +420,14 @@ static void handle_onchain_htlc_timeout(struct channel *channel, const u8 *msg)
 		return;
 	}
 
+	/* It should tell us about timeouts on our LOCAL htlcs */
+	if (htlc.owner != LOCAL) {
+		channel_internal_error(channel,
+				       "onchaind_htlc_timeout: htlc %"PRIu64" is not local!",
+				       htlc.id);
+		return;
+	}
+
 	/* BOLT #5:
 	 *
 	 *   - if the commitment transaction HTLC output has *timed out* and
@@ -417,7 +435,7 @@ static void handle_onchain_htlc_timeout(struct channel *channel, const u8 *msg)
 	 *     - MUST *resolve* the output by spending it using the HTLC-timeout
 	 *     transaction.
 	 */
-	onchain_failed_our_htlc(channel, &htlc, "timed out");
+	onchain_failed_our_htlc(channel, &htlc, "timed out", true);
 }
 
 static void handle_irrevocably_resolved(struct channel *channel, const u8 *msg UNUSED)
@@ -469,7 +487,9 @@ static void onchain_add_utxo(struct channel *channel, const u8 *msg)
 				 csv_lock);
 
 	mvt = new_coin_wallet_deposit(msg, &outpoint, blockheight,
-			              amount, CHANNEL_CLOSE);
+			              amount, DEPOSIT);
+	mvt->originating_acct = type_to_string(mvt, struct channel_id,
+					       &channel->cid);
 
 	notify_chain_mvt(channel->peer->ld, mvt);
 }
@@ -615,7 +635,7 @@ enum watch_result onchaind_funding_spent(struct channel *channel,
 				  HSM_CAP_SIGN_ONCHAIN_TX
 				  | HSM_CAP_COMMITMENT_POINT);
 
-	channel_set_owner(channel, new_channel_subd(ld,
+	channel_set_owner(channel, new_channel_subd(channel, ld,
 						    "lightning_onchaind",
 						    channel,
 						    &channel->peer->id,
@@ -636,6 +656,16 @@ enum watch_result onchaind_funding_spent(struct channel *channel,
 	if (!bip32_pubkey(ld->wallet->bip32_base, &final_key,
 			  channel->final_key_idx)) {
 		log_broken(channel->log, "Could not derive onchain key %"PRIu64,
+			   channel->final_key_idx);
+		return KEEP_WATCHING;
+	}
+	struct ext_key final_wallet_ext_key;
+	if (bip32_key_from_parent(
+		    ld->wallet->bip32_base,
+		    channel->final_key_idx,
+		    BIP32_FLAG_KEY_PUBLIC,
+		    &final_wallet_ext_key) != WALLY_OK) {
+		log_broken(channel->log, "Could not derive final_wallet_ext_key %"PRIu64,
 			   channel->final_key_idx);
 		return KEEP_WATCHING;
 	}
@@ -703,6 +733,8 @@ enum watch_result onchaind_funding_spent(struct channel *channel,
 				  &our_last_txid,
 				  channel->shutdown_scriptpubkey[LOCAL],
 				  channel->shutdown_scriptpubkey[REMOTE],
+				  channel->final_key_idx,
+				  &final_wallet_ext_key,
 				  &final_key,
 				  channel->opener,
 				  &channel->local_basepoints,

@@ -8,6 +8,8 @@ tlvdata,tlv_payload,short_channel_id,short_channel_id,short_channel_id,
 tlvtype,tlv_payload,payment_data,8
 tlvdata,tlv_payload,payment_data,payment_secret,byte,32
 tlvdata,tlv_payload,payment_data,total_msat,tu64,
+tlvtype,tlv_payload,payment_metadata,16
+tlvdata,tlv_payload,payment_metadata,payment_metadata,byte,...
 tlvtype,obs2_onionmsg_payload,reply_path,2
 tlvdata,obs2_onionmsg_payload,reply_path,first_node_id,point,
 tlvdata,obs2_onionmsg_payload,reply_path,blinding,point,
@@ -97,6 +99,9 @@ msgdata,final_incorrect_cltv_expiry,cltv_expiry,u32,
 msgtype,final_incorrect_htlc_amount,19
 msgdata,final_incorrect_htlc_amount,incoming_htlc_amt,u64,
 msgtype,channel_disabled,UPDATE|20
+msgdata,channel_disabled,flags,u16,
+msgdata,channel_disabled,len,u16,
+msgdata,channel_disabled,channel_update,byte,len
 msgtype,expiry_too_far,21
 msgtype,invalid_onion_payload,PERM|22
 msgdata,invalid_onion_payload,type,bigsize,

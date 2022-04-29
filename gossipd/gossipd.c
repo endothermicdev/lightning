@@ -24,6 +24,7 @@
 #include <common/timeout.h>
 #include <common/type_to_string.h>
 #include <common/wire_error.h>
+#include <common/wireaddr.h>
 #include <connectd/connectd_gossipd_wiregen.h>
 #include <errno.h>
 #include <gossipd/gossip_generation.h>
@@ -153,13 +154,12 @@ static bool get_node_announcement(const tal_t *ctx,
 	msg = gossip_store_get(tmpctx, daemon->rstate->gs, n->bcast.index);
 
 	/* Note: validity of node_id is already checked. */
-	na_tlvs = tlv_node_ann_tlvs_new(ctx);
 	if (!fromwire_node_announcement(ctx, msg,
 					&signature, features,
 					&timestamp,
 					&id, rgb_color, alias,
 					&addresses,
-					na_tlvs)) {
+					&na_tlvs)) {
 		status_broken("Bad local node_announcement @%u: %s",
 			      n->bcast.index, tal_hex(tmpctx, msg));
 		return false;
@@ -345,6 +345,53 @@ static void handle_local_private_channel(struct daemon *daemon, const u8 *msg)
 		status_peer_broken(&id, "bad add_private_channel %s",
 				   tal_hex(tmpctx, cannounce));
 	}
+}
+
+/* lightningd tells us it has dicovered and verified new `remote_addr`.
+ * We can use this to update our node announcement. */
+static void handle_remote_addr(struct daemon *daemon, const u8 *msg)
+{
+	struct wireaddr remote_addr;
+
+	if (!fromwire_gossipd_remote_addr(msg, &remote_addr))
+		master_badmsg(WIRE_GOSSIPD_REMOTE_ADDR, msg);
+
+	/* current best guess is that we use DEFAULT_PORT on public internet */
+	remote_addr.port = DEFAULT_PORT;
+
+	switch (remote_addr.type) {
+	case ADDR_TYPE_IPV4:
+		if (daemon->remote_addr_v4 != NULL &&
+		    wireaddr_eq_without_port(daemon->remote_addr_v4,
+					     &remote_addr))
+			break;
+		tal_free(daemon->remote_addr_v4);
+		daemon->remote_addr_v4 = tal_dup(daemon, struct wireaddr,
+						 &remote_addr);
+		goto update_node_annoucement;
+	case ADDR_TYPE_IPV6:
+		if (daemon->remote_addr_v6 != NULL &&
+		    wireaddr_eq_without_port(daemon->remote_addr_v6,
+					     &remote_addr))
+			break;
+		tal_free(daemon->remote_addr_v6);
+		daemon->remote_addr_v6 = tal_dup(daemon, struct wireaddr,
+						 &remote_addr);
+		goto update_node_annoucement;
+
+	/* ignore all other cases */
+	case ADDR_TYPE_TOR_V2_REMOVED:
+	case ADDR_TYPE_TOR_V3:
+	case ADDR_TYPE_DNS:
+	case ADDR_TYPE_WEBSOCKET:
+		break;
+	}
+	return;
+
+update_node_annoucement:
+	status_debug("Update our node_announcement for discovered address: %s",
+		     fmt_wireaddr(tmpctx, &remote_addr));
+	maybe_send_own_node_announce(daemon, false);
 }
 
 /*~ This is where connectd tells us about a new peer we might want to
@@ -665,6 +712,15 @@ struct peer *random_peer(struct daemon *daemon,
 	return best;
 }
 
+/* This is called when lightningd or connectd closes its connection to
+ * us.  We simply exit. */
+static void master_or_connectd_gone(struct daemon_conn *dc UNUSED)
+{
+	daemon_shutdown();
+	/* Can't tell master, it's gone. */
+	exit(2);
+}
+
 /*~ Parse init message from lightningd: starts the daemon properly. */
 static void gossip_init(struct daemon *daemon, const u8 *msg)
 {
@@ -678,7 +734,7 @@ static void gossip_init(struct daemon *daemon, const u8 *msg)
 				     &daemon->id,
 				     daemon->rgb,
 				     daemon->alias,
-				     &daemon->announcable,
+				     &daemon->announceable,
 				     &dev_gossip_time,
 				     &dev_fast_gossip,
 				     &dev_fast_gossip_prune)) {
@@ -721,6 +777,7 @@ static void gossip_init(struct daemon *daemon, const u8 *msg)
 	daemon->connectd = daemon_conn_new(daemon, CONNECTD_FD,
 					   connectd_req,
 					   maybe_send_query_responses, daemon);
+	tal_add_destructor(daemon->connectd, master_or_connectd_gone);
 
 	/* OK, we are ready. */
 	daemon_conn_send(daemon->master,
@@ -754,16 +811,6 @@ static void new_blockheight(struct daemon *daemon, const u8 *msg)
 }
 
 #if DEVELOPER
-/* Another testing hack */
-static void dev_gossip_suppress(struct daemon *daemon, const u8 *msg)
-{
-	if (!fromwire_gossipd_dev_suppress(msg))
-		master_badmsg(WIRE_GOSSIPD_DEV_SUPPRESS, msg);
-
-	status_unusual("Suppressing all gossip");
-	dev_suppress_gossip = true;
-}
-
 static void dev_gossip_memleak(struct daemon *daemon, const u8 *msg)
 {
 	struct htable *memtable;
@@ -999,12 +1046,13 @@ static struct io_plan *recv_req(struct io_conn *conn,
 	case WIRE_GOSSIPD_LOCAL_PRIVATE_CHANNEL:
 		handle_local_private_channel(daemon, msg);
 		goto done;
+
+	case WIRE_GOSSIPD_REMOTE_ADDR:
+		handle_remote_addr(daemon, msg);
+		goto done;
 #if DEVELOPER
 	case WIRE_GOSSIPD_DEV_SET_MAX_SCIDS_ENCODE_SIZE:
 		dev_set_max_scids_encode_size(daemon, msg);
-		goto done;
-	case WIRE_GOSSIPD_DEV_SUPPRESS:
-		dev_gossip_suppress(daemon, msg);
 		goto done;
 	case WIRE_GOSSIPD_DEV_MEMLEAK:
 		dev_gossip_memleak(daemon, msg);
@@ -1017,7 +1065,6 @@ static struct io_plan *recv_req(struct io_conn *conn,
 		goto done;
 #else
 	case WIRE_GOSSIPD_DEV_SET_MAX_SCIDS_ENCODE_SIZE:
-	case WIRE_GOSSIPD_DEV_SUPPRESS:
 	case WIRE_GOSSIPD_DEV_MEMLEAK:
 	case WIRE_GOSSIPD_DEV_COMPACT_STORE:
 	case WIRE_GOSSIPD_DEV_SET_TIME:
@@ -1044,15 +1091,6 @@ done:
 	return daemon_conn_read_next(conn, daemon->master);
 }
 
-/* This is called when lightningd closes its connection to us.  We simply
- * exit. */
-static void master_gone(struct daemon_conn *master UNUSED)
-{
-	daemon_shutdown();
-	/* Can't tell master, it's gone. */
-	exit(2);
-}
-
 int main(int argc, char *argv[])
 {
 	setup_locale();
@@ -1065,7 +1103,10 @@ int main(int argc, char *argv[])
 	list_head_init(&daemon->peers);
 	daemon->deferred_txouts = tal_arr(daemon, struct short_channel_id, 0);
 	daemon->node_announce_timer = NULL;
+	daemon->node_announce_regen_timer = NULL;
 	daemon->rates = NULL;
+	daemon->remote_addr_v4 = NULL;
+	daemon->remote_addr_v6 = NULL;
 	list_head_init(&daemon->deferred_updates);
 
 	/* Tell the ecdh() function how to talk to hsmd */
@@ -1081,7 +1122,7 @@ int main(int argc, char *argv[])
 	/* Our daemons always use STDIN for commands from lightningd. */
 	daemon->master = daemon_conn_new(daemon, STDIN_FILENO,
 					 recv_req, NULL, daemon);
-	tal_add_destructor(daemon->master, master_gone);
+	tal_add_destructor(daemon->master, master_or_connectd_gone);
 
 	status_setup_async(daemon->master);
 

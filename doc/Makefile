@@ -65,6 +65,7 @@ MANPAGES := doc/lightning-cli.1 \
 	doc/lightning-sendonion.7 \
 	doc/lightning-sendonionmessage.7 \
 	doc/lightning-sendpay.7 \
+	doc/lightning-setchannel.7 \
 	doc/lightning-setchannelfee.7 \
 	doc/lightning-sendcustommsg.7 \
 	doc/lightning-signmessage.7 \
@@ -93,9 +94,13 @@ doc-all: $(MANPAGES) doc/index.rst
 
 SCHEMAS := $(wildcard doc/schemas/*.json)
 check-fmt-schemas: $(SCHEMAS:%=check-fmt-schema/%)
+fmt-schemas: $(SCHEMAS:%=fmt-schema/%)
 
 check-fmt-schema/%: %
 	@jq . < "$*" > "$*".fmt && diff -u "$*" "$*.fmt" && rm "$*.fmt"
+
+fmt-schema/%: %
+	@jq . < "$*" > "$*".fmt && cat "$*".fmt > "$*" && rm "$*.fmt"
 
 check-doc: check-config-docs check-manpages check-fmt-schemas
 
@@ -150,7 +155,7 @@ clean: doc-clean
 check: check-manpages
 
 # This needs plugins, too.
-check-manpages: all-programs check-config-docs
+check-manpages: all-programs check-config-docs default-targets
 	@tools/check-manpage.sh cli/lightning-cli doc/lightning-cli.1.md
 	@tools/check-manpage.sh "lightningd/lightningd --lightning-dir=/tmp/" doc/lightningd-config.5.md
 

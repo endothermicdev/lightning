@@ -19,6 +19,7 @@ struct onion_payload {
 	struct amount_msat *total_msat;
 	struct short_channel_id *forward_channel;
 	struct secret *payment_secret;
+	u8 *payment_metadata;
 
 	/* If blinding is set, blinding_ss is the shared secret.*/
 	struct pubkey *blinding;
@@ -29,22 +30,21 @@ struct onion_payload {
 };
 
 u8 *onion_nonfinal_hop(const tal_t *ctx,
-		       bool use_tlv,
 		       const struct short_channel_id *scid,
 		       struct amount_msat forward,
 		       u32 outgoing_cltv,
 		       const struct pubkey *blinding,
 		       const u8 *enctlv);
 
-/* Note that this can fail if we supply payment_secret and !use_tlv! */
+/* Note that this can fail if we supply payment_secret or payment_metadata and !use_tlv! */
 u8 *onion_final_hop(const tal_t *ctx,
-		    bool use_tlv,
 		    struct amount_msat forward,
 		    u32 outgoing_cltv,
 		    struct amount_msat total_msat,
 		    const struct pubkey *blinding,
 		    const u8 *enctlv,
-		    const struct secret *payment_secret);
+		    const struct secret *payment_secret,
+		    const u8 *payment_metadata);
 
 /**
  * onion_payload_length: measure payload length in decrypted onion.
@@ -80,7 +80,7 @@ struct onion_payload *onion_decode(const tal_t *ctx,
 				   const struct route_step *rs,
 				   const struct pubkey *blinding,
 				   const struct secret *blinding_ss,
-				   u64 *accepted_extra_tlvs,
+				   const u64 *accepted_extra_tlvs,
 				   u64 *failtlvtype,
 				   size_t *failtlvpos);
 

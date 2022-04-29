@@ -1,4 +1,4 @@
-DEVTOOLS := devtools/bolt11-cli devtools/decodemsg devtools/onion devtools/dump-gossipstore devtools/gossipwith devtools/create-gossipstore devtools/mkcommit devtools/mkfunding devtools/mkclose devtools/mkgossip devtools/mkencoded devtools/mkquery devtools/lightning-checkmessage devtools/topology devtools/route devtools/blindedpath devtools/bolt12-cli devtools/encodeaddr devtools/features
+DEVTOOLS := devtools/bolt11-cli devtools/decodemsg devtools/onion devtools/dump-gossipstore devtools/gossipwith devtools/create-gossipstore devtools/mkcommit devtools/mkfunding devtools/mkclose devtools/mkgossip devtools/mkencoded devtools/mkquery devtools/lightning-checkmessage devtools/topology devtools/route devtools/bolt12-cli devtools/encodeaddr devtools/features devtools/fp16
 ifeq ($(HAVE_SQLITE3),1)
 DEVTOOLS += devtools/checkchannels
 endif
@@ -14,6 +14,7 @@ ALL_PROGRAMS += $(DEVTOOLS)
 DEVTOOLS_COMMON_OBJS :=				\
 	common/amount.o				\
 	common/autodata.o			\
+	common/coin_mvt.o			\
 	common/base32.o				\
 	common/bech32.o				\
 	common/bech32_util.o			\
@@ -48,6 +49,8 @@ DEVTOOLS_COMMON_OBJS :=				\
 
 devtools/features: $(CCAN_OBJS) common/features.o common/utils.o wire/fromwire.o wire/towire.o devtools/features.o
 
+devtools/fp16: $(CCAN_OBJS) common/fp16.o common/utils.o common/setup.o common/autodata.o devtools/fp16.o
+
 devtools/bolt11-cli: $(DEVTOOLS_COMMON_OBJS) $(JSMN_OBJS) $(CCAN_OBJS) $(BITCOIN_OBJS) wire/fromwire.o wire/towire.o devtools/bolt11-cli.o
 
 devtools/encodeaddr: common/utils.o common/bech32.o devtools/encodeaddr.o
@@ -66,8 +69,6 @@ devtools/create-gossipstore.o: gossipd/gossip_store_wiregen.h
 devtools/onion.c: ccan/config.h
 
 devtools/onion: $(DEVTOOLS_COMMON_OBJS) $(JSMN_OBJS) $(CCAN_OBJS) $(BITCOIN_OBJS) common/onion.o common/onionreply.o wire/fromwire.o wire/towire.o devtools/onion.o common/sphinx.o
-
-devtools/blindedpath: $(DEVTOOLS_COMMON_OBJS) $(JSMN_OBJS) $(CCAN_OBJS) common/blinding.o $(BITCOIN_OBJS) wire/fromwire.o wire/towire.o devtools/blindedpath.o common/onion.o common/onionreply.o common/sphinx.o
 
 devtools/gossipwith: $(DEVTOOLS_COMMON_OBJS) $(JSMN_OBJS) $(CCAN_OBJS) $(BITCOIN_OBJS) wire/fromwire.o wire/towire.o wire/peer$(EXP)_wiregen.o devtools/gossipwith.o common/cryptomsg.o common/cryptomsg.o
 

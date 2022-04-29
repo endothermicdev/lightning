@@ -33,9 +33,6 @@ void ecdh(const struct pubkey *point UNNEEDED, struct secret *ss UNNEEDED)
 /* Generated stub for find_peer */
 struct peer *find_peer(struct daemon *daemon UNNEEDED, const struct node_id *id UNNEEDED)
 { fprintf(stderr, "find_peer called!\n"); abort(); }
-/* Generated stub for fmt_wireaddr_without_port */
-char *fmt_wireaddr_without_port(const tal_t *ctx UNNEEDED, const struct wireaddr *a UNNEEDED)
-{ fprintf(stderr, "fmt_wireaddr_without_port called!\n"); abort(); }
 /* Generated stub for fromwire_gossipd_local_channel_update */
 bool fromwire_gossipd_local_channel_update(const void *p UNNEEDED, struct node_id *id UNNEEDED, struct short_channel_id *short_channel_id UNNEEDED, bool *disable UNNEEDED, u16 *cltv_expiry_delta UNNEEDED, struct amount_msat *htlc_minimum_msat UNNEEDED, u32 *fee_base_msat UNNEEDED, u32 *fee_proportional_millionths UNNEEDED, struct amount_msat *htlc_maximum_msat UNNEEDED)
 { fprintf(stderr, "fromwire_gossipd_local_channel_update called!\n"); abort(); }
@@ -115,9 +112,6 @@ u8 *towire_hsmd_cupdate_sig_req(const tal_t *ctx UNNEEDED, const u8 *cu UNNEEDED
 /* Generated stub for towire_hsmd_node_announcement_sig_req */
 u8 *towire_hsmd_node_announcement_sig_req(const tal_t *ctx UNNEEDED, const u8 *announcement UNNEEDED)
 { fprintf(stderr, "towire_hsmd_node_announcement_sig_req called!\n"); abort(); }
-/* Generated stub for towire_wireaddr */
-void towire_wireaddr(u8 **pptr UNNEEDED, const struct wireaddr *addr UNNEEDED)
-{ fprintf(stderr, "towire_wireaddr called!\n"); abort(); }
 /* Generated stub for wire_sync_read */
 u8 *wire_sync_read(const tal_t *ctx UNNEEDED, int fd UNNEEDED)
 { fprintf(stderr, "wire_sync_read called!\n"); abort(); }

@@ -165,6 +165,7 @@ static struct io_plan *bad_req(struct io_conn *conn,
  * and then call handle_client with argument 'c' */
 static struct io_plan *client_read_next(struct io_conn *conn, struct client *c)
 {
+	c->msg_in = tal_free(c->msg_in);
 	return io_read_wire(conn, c, &c->msg_in, handle_client, c);
 }
 
@@ -186,6 +187,8 @@ static struct client *new_client(const tal_t *ctx,
 				 int fd)
 {
 	struct client *c = tal(ctx, struct client);
+
+	c->msg_in = NULL;
 
 	/*~ All-zero pubkey is used for the initial master connection */
 	if (id) {
@@ -306,7 +309,7 @@ static void create_hsm(int fd)
 	}
 }
 
-/*~ We store our root secret in a "hsm_secret" file (like all of c-lightning,
+/*~ We store our root secret in a "hsm_secret" file (like all of Core Lightning,
  * we run in the user's .lightning directory). */
 static void maybe_create_new_hsm(const struct secret *encryption_key,
                                  bool random_hsm)
@@ -555,7 +558,6 @@ static struct io_plan *handle_memleak(struct io_conn *conn,
 	memtable = memleak_find_allocations(tmpctx, msg_in, msg_in);
 
 	/* Now delete clients and anything they point to. */
-	memleak_remove_region(memtable, c, tal_bytelen(c));
 	memleak_remove_region(memtable,
 			      dbid_zero_clients, sizeof(dbid_zero_clients));
 	memleak_remove_uintmap(memtable, &clients);
@@ -642,6 +644,7 @@ static struct io_plan *handle_client(struct io_conn *conn, struct client *c)
 	case WIRE_HSMD_NEW_CHANNEL:
 	case WIRE_HSMD_READY_CHANNEL:
 	case WIRE_HSMD_SIGN_COMMITMENT_TX:
+	case WIRE_HSMD_VALIDATE_COMMITMENT_TX:
 	case WIRE_HSMD_VALIDATE_REVOCATION:
 	case WIRE_HSMD_SIGN_PENALTY_TO_US:
 	case WIRE_HSMD_SIGN_REMOTE_COMMITMENT_TX:
@@ -680,6 +683,7 @@ static struct io_plan *handle_client(struct io_conn *conn, struct client *c)
 	case WIRE_HSMD_INIT_REPLY:
 	case WIRE_HSMSTATUS_CLIENT_BAD_REQUEST:
 	case WIRE_HSMD_SIGN_COMMITMENT_TX_REPLY:
+	case WIRE_HSMD_VALIDATE_COMMITMENT_TX_REPLY:
 	case WIRE_HSMD_VALIDATE_REVOCATION_REPLY:
 	case WIRE_HSMD_SIGN_TX_REPLY:
 	case WIRE_HSMD_SIGN_OPTION_WILL_FUND_OFFER_REPLY:

@@ -180,17 +180,16 @@ void handle_onionmsg_to_us(struct lightningd *ld, const u8 *msg)
 	subptr = submsg;
 	if (obs2) {
 		payload->om = NULL;
-		payload->obs2_om = tlv_obs2_onionmsg_payload_new(payload);
-		if (!fromwire_obs2_onionmsg_payload(&subptr,
-						    &submsglen, payload->obs2_om)) {
-			log_broken(ld->log, "bad got_onionmsg_tous obs2 om: %s",
+		payload->obs2_om = fromwire_tlv_obs2_onionmsg_payload(payload, &subptr, &submsglen);
+		if (!payload->obs2_om) {
+			log_broken(ld->log, "bad got_obs2_onionmsg_tous om: %s",
 				   tal_hex(tmpctx, msg));
 			return;
 		}
 	} else {
 		payload->obs2_om = NULL;
-		payload->om = tlv_onionmsg_payload_new(payload);
-		if (!fromwire_onionmsg_payload(&subptr, &submsglen, payload->om)) {
+		payload->om = fromwire_tlv_onionmsg_payload(payload, &subptr, &submsglen);
+		if (!payload->om) {
 			log_broken(ld->log, "bad got_onionmsg_tous om: %s",
 				   tal_hex(tmpctx, msg));
 			return;

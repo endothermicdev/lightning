@@ -61,10 +61,10 @@ struct payment *payment_new(tal_t *ctx, struct command *cmd,
 	p->failreason = NULL;
 	p->getroute->riskfactorppm = 10000000;
 	p->abort = false;
+	p->invstring_used = false;
 	p->route = NULL;
 	p->temp_exclusion = NULL;
 	p->failroute_retry = false;
-	p->invstring = NULL;
 	p->routetxt = NULL;
 	p->max_htlcs = UINT32_MAX;
 	p->aborterror = NULL;
@@ -76,7 +76,6 @@ struct payment *payment_new(tal_t *ctx, struct command *cmd,
 		assert(cmd == NULL);
 		tal_arr_expand(&parent->children, p);
 		p->destination = parent->destination;
-		p->destination_has_tlv = parent->destination_has_tlv;
 		p->amount = parent->amount;
 		p->label = parent->label;
 		p->payment_hash = parent->payment_hash;
@@ -94,6 +93,8 @@ struct payment *payment_new(tal_t *ctx, struct command *cmd,
 		p->local_id = parent->local_id;
 		p->local_offer_id = parent->local_offer_id;
 		p->groupid = parent->groupid;
+		p->invstring = parent->invstring;
+		p->description = parent->description;
 	} else {
 		assert(cmd != NULL);
 		p->partid = 0;
@@ -102,6 +103,7 @@ struct payment *payment_new(tal_t *ctx, struct command *cmd,
 		p->channel_hints = tal_arr(p, struct channel_hint, 0);
 		p->excluded_nodes = tal_arr(p, struct node_id, 0);
 		p->id = next_id++;
+		p->description = NULL;
 		/* Caller must set this.  */
 		p->local_id = NULL;
 		p->local_offer_id = NULL;
@@ -766,7 +768,7 @@ static struct route_hop *route(const tal_t *ctx,
 		/* Try using disabled channels too */
 		/* FIXME: is there somewhere we can annotate this for paystatus? */
 		can_carry = payment_route_can_carry_even_disabled;
-		dij = dijkstra(ctx, gossmap, dst, amount, riskfactor,
+		dij = dijkstra(tmpctx, gossmap, dst, amount, riskfactor,
 			       can_carry, route_score, p);
 		r = route_from_dijkstra(ctx, gossmap, dij, src,
 					amount, final_delay);
@@ -883,20 +885,6 @@ static struct command_result *payment_getroute(struct payment *p)
 	 * onion_payloads */
 	payment_continue(p);
 	return command_still_pending(p->cmd);
-}
-
-static u8 *tal_towire_legacy_payload(const tal_t *ctx, const struct legacy_payload *payload)
-{
-	const u8 padding[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-			      0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-	/* Prepend 0 byte for realm */
-	u8 *buf = tal_arrz(ctx, u8, 1);
-	towire_short_channel_id(&buf, &payload->scid);
-	towire_amount_msat(&buf, payload->forward_amt);
-	towire_u32(&buf, payload->outgoing_cltv);
-	towire(&buf, padding, ARRAY_SIZE(padding));
-	assert(tal_bytelen(buf) == 1 + 32);
-	return buf;
 }
 
 static struct payment_result *tal_sendpay_result_from_json(const tal_t *ctx,
@@ -1550,6 +1538,7 @@ static struct command_result *payment_createonion_success(struct command *cmd,
 	struct out_req *req;
 	struct route_hop *first = &p->route[0];
 	struct secret *secrets;
+	struct payment *root = payment_root(p);
 
 	p->createonion_response = json_to_createonion_response(p, buffer, toks);
 
@@ -1579,9 +1568,15 @@ static struct command_result *payment_createonion_success(struct command *cmd,
 	if (p->label)
 		json_add_string(req->js, "label", p->label);
 
-	if (p->invstring)
+	if (!root->invstring_used) {
 		/* FIXME: rename parameter to invstring */
 		json_add_string(req->js, "bolt11", p->invstring);
+
+		if (p->description)
+			json_add_string(req->js, "description", p->description);
+
+		root->invstring_used = true;
+	}
 
 	if (p->destination)
 		json_add_node_id(req->js, "destination", p->destination);
@@ -1596,7 +1591,7 @@ static struct command_result *payment_createonion_success(struct command *cmd,
 /* Temporary serialization method for the tlv_payload.data until we rework the
  * API that is generated from the specs to use the setter/getter interface. */
 static void tlvstream_set_tlv_payload_data(struct tlv_field **stream,
-					   struct secret *payment_secret,
+					   const struct secret *payment_secret,
 					   u64 total_msat)
 {
 	u8 *ser = tal_arr(NULL, u8, 0);
@@ -1611,56 +1606,42 @@ static void payment_add_hop_onion_payload(struct payment *p,
 					  struct route_hop *node,
 					  struct route_hop *next,
 					  bool final,
-					  bool force_tlv,
-					  struct secret *payment_secret)
+					  struct secret *payment_secret,
+					  const u8 *payment_metadata)
 {
 	struct createonion_request *cr = p->createonion_request;
 	u32 cltv = p->start_block + next->delay + 1;
 	u64 msat = next->amount.millisatoshis; /* Raw: TLV payload generation*/
 	struct tlv_field **fields;
 	struct payment *root = payment_root(p);
-	static struct short_channel_id all_zero_scid = {.u64 = 0};
 
 	/* This is the information of the node processing this payload, while
 	 * `next` are the instructions to include in the payload, which is
 	 * basically the channel going to the next node. */
-	dst->style = node->style;
-	if (force_tlv)
-		dst->style = ROUTE_HOP_TLV;
 	dst->pubkey = node->node_id;
 
-	switch (dst->style) {
-	case ROUTE_HOP_LEGACY:
-		dst->legacy_payload = tal(cr->hops, struct legacy_payload);
-		dst->legacy_payload->forward_amt = next->amount;
+	dst->tlv_payload = tlv_tlv_payload_new(cr->hops);
+	fields = &dst->tlv_payload->fields;
+	tlvstream_set_tu64(fields, TLV_TLV_PAYLOAD_AMT_TO_FORWARD,
+			   msat);
+	tlvstream_set_tu32(fields, TLV_TLV_PAYLOAD_OUTGOING_CLTV_VALUE,
+			   cltv);
 
-		if (!final)
-			dst->legacy_payload->scid = next->scid;
-		else
-			dst->legacy_payload->scid = all_zero_scid;
+	if (!final)
+		tlvstream_set_short_channel_id(fields,
+					       TLV_TLV_PAYLOAD_SHORT_CHANNEL_ID,
+					       &next->scid);
 
-		dst->legacy_payload->outgoing_cltv = cltv;
-		break;
-	case ROUTE_HOP_TLV:
-		dst->tlv_payload = tlv_tlv_payload_new(cr->hops);
-		fields = &dst->tlv_payload->fields;
-		tlvstream_set_tu64(fields, TLV_TLV_PAYLOAD_AMT_TO_FORWARD,
-				   msat);
-		tlvstream_set_tu32(fields, TLV_TLV_PAYLOAD_OUTGOING_CLTV_VALUE,
-				   cltv);
-
-		if (!final)
-			tlvstream_set_short_channel_id(fields,
-						       TLV_TLV_PAYLOAD_SHORT_CHANNEL_ID,
-						       &next->scid);
-
-		if (payment_secret != NULL) {
-			assert(final);
-			tlvstream_set_tlv_payload_data(
-			    fields, payment_secret,
-			    root->amount.millisatoshis); /* Raw: TLV payload generation*/
-		}
-		break;
+	if (payment_secret != NULL) {
+		assert(final);
+		tlvstream_set_tlv_payload_data(
+			fields, payment_secret,
+			root->amount.millisatoshis); /* Raw: TLV payload generation*/
+	}
+	if (payment_metadata != NULL) {
+		assert(final);
+		tlvstream_set_raw(fields, TLV_TLV_PAYLOAD_PAYMENT_METADATA,
+				  payment_metadata, tal_bytelen(payment_metadata));
 	}
 }
 
@@ -1699,8 +1680,8 @@ static void payment_compute_onion_payloads(struct payment *p)
 		/* The message is destined for hop i, but contains fields for
 		 * i+1 */
 		payment_add_hop_onion_payload(p, &cr->hops[i], &p->route[i],
-					      &p->route[i + 1], false, false,
-					      NULL);
+					      &p->route[i + 1], false,
+					      NULL, NULL);
 		tal_append_fmt(&routetxt, "%s -> ",
 			       type_to_string(tmpctx, struct short_channel_id,
 					      &p->route[i].scid));
@@ -1709,8 +1690,8 @@ static void payment_compute_onion_payloads(struct payment *p)
 	/* Final hop */
 	payment_add_hop_onion_payload(
 	    p, &cr->hops[hopcount - 1], &p->route[hopcount - 1],
-	    &p->route[hopcount - 1], true, root->destination_has_tlv,
-	    root->payment_secret);
+	    &p->route[hopcount - 1], true,
+	    root->payment_secret, root->payment_metadata);
 	tal_append_fmt(&routetxt, "%s",
 		       type_to_string(tmpctx, struct short_channel_id,
 				      &p->route[hopcount - 1].scid));
@@ -1738,18 +1719,14 @@ static void payment_sendonion(struct payment *p)
 		json_object_start(req->js, NULL);
 		struct createonion_hop *hop = &p->createonion_request->hops[i];
 		json_add_node_id(req->js, "pubkey", &hop->pubkey);
-		if (hop->style == ROUTE_HOP_LEGACY) {
-			payload = tal_towire_legacy_payload(tmpctx, hop->legacy_payload);
-			json_add_hex_talarr(req->js, "payload", payload);
-		}else {
-			tlv = tal_arr(tmpctx, u8, 0);
-			towire_tlvstream_raw(&tlv, hop->tlv_payload->fields);
-			payload = tal_arr(tmpctx, u8, 0);
-			towire_bigsize(&payload, tal_bytelen(tlv));
-			towire(&payload, tlv, tal_bytelen(tlv));
-			json_add_hex_talarr(req->js, "payload", payload);
-			tal_free(tlv);
-		}
+
+		tlv = tal_arr(tmpctx, u8, 0);
+		towire_tlvstream_raw(&tlv, hop->tlv_payload->fields);
+		payload = tal_arr(tmpctx, u8, 0);
+		towire_bigsize(&payload, tal_bytelen(tlv));
+		towire(&payload, tlv, tal_bytelen(tlv));
+		json_add_hex_talarr(req->js, "payload", payload);
+		tal_free(tlv);
 		tal_free(payload);
 		json_object_end(req->js);
 	}
@@ -2122,6 +2099,8 @@ void payment_abort(struct payment *p, const char *fmt, ...) {
 	payment_set_step(p, PAYMENT_STEP_FAILED);
 	p->end_time = time_now();
 
+	/* We can fail twice, it seems. */
+	tal_free(p->failreason);
 	va_start(ap, fmt);
 	p->failreason = tal_vfmt(p, fmt, ap);
 	va_end(ap);
@@ -2147,6 +2126,8 @@ void payment_fail(struct payment *p, const char *fmt, ...)
 	va_list ap;
 	p->end_time = time_now();
 	payment_set_step(p, PAYMENT_STEP_FAILED);
+	/* We can fail twice, it seems. */
+	tal_free(p->failreason);
 	va_start(ap, fmt);
 	p->failreason = tal_vfmt(p, fmt, ap);
 	va_end(ap);
@@ -2828,7 +2809,6 @@ static void routehint_step_cb(struct routehints_data *d, struct payment *p)
 			}
 
 			hop.node_id = *route_pubkey(p, routehint, i + 1);
-			hop.style = ROUTE_HOP_LEGACY;
 			hop.scid = routehint[i].short_channel_id;
 			hop.amount = dest_amount;
 			hop.delay = route_cltv(d->final_cltv, routehint + i + 1,
@@ -3002,8 +2982,7 @@ static struct command_result *shadow_route_extend(struct shadow_route_data *d,
 	req = jsonrpc_request_start(p->plugin, NULL, "listchannels",
 				    shadow_route_listchannels,
 				    payment_rpc_failure, p);
-	json_add_string(req->js, "source",
-			type_to_string(req, struct node_id, &d->destination));
+	json_add_node_id(req->js, "source", &d->destination);
 	return send_outreq(p->plugin, req);
 }
 
@@ -3212,7 +3191,6 @@ static void direct_pay_override(struct payment *p) {
 		p->route[0].scid = hint->scid.scid;
 		p->route[0].direction = hint->scid.dir;
 		p->route[0].node_id = *p->destination;
-		p->route[0].style = p->destination_has_tlv ? ROUTE_HOP_TLV : ROUTE_HOP_LEGACY;
 		paymod_log(p, LOG_DBG,
 			   "Found a direct channel (%s) with sufficient "
 			   "capacity, skipping route computation.",
@@ -3519,12 +3497,10 @@ static void presplit_cb(struct presplit_mod_data *d, struct payment *p)
 		 * get the exact value through. */
 		size_t lastidx = tal_count(p->createonion_request->hops) - 1;
 		struct createonion_hop *hop = &p->createonion_request->hops[lastidx];
-		if (hop->style == ROUTE_HOP_TLV) {
-			struct tlv_field **fields = &hop->tlv_payload->fields;
-			tlvstream_set_tlv_payload_data(
+		struct tlv_field **fields = &hop->tlv_payload->fields;
+		tlvstream_set_tlv_payload_data(
 			    fields, root->payment_secret,
 			    root->amount.millisatoshis); /* Raw: onion payload */
-		}
 	} else if (p->step == PAYMENT_STEP_INITIALIZED) {
 		/* The presplitter only acts on the root and only in the first
 		 * step. */
@@ -3588,11 +3564,6 @@ static void presplit_cb(struct presplit_mod_data *d, struct payment *p)
 
 			struct payment *c =
 			    payment_new(p, NULL, p, p->modifiers);
-
-			/* Annotate the subpayments with the bolt11 string,
-			 * they'll be used when aggregating the payments
-			 * again. */
-			c->invstring = tal_strdup(c, p->invstring);
 
 			/* Get ~ target, but don't exceed amt */
 			c->amount = fuzzed_near(target, amt);
@@ -3704,12 +3675,10 @@ static void adaptive_splitter_cb(struct adaptive_split_mod_data *d, struct payme
 		 * get the exact value through. */
 		size_t lastidx = tal_count(p->createonion_request->hops) - 1;
 		struct createonion_hop *hop = &p->createonion_request->hops[lastidx];
-		if (hop->style == ROUTE_HOP_TLV) {
-			struct tlv_field **fields = &hop->tlv_payload->fields;
-			tlvstream_set_tlv_payload_data(
+		struct tlv_field **fields = &hop->tlv_payload->fields;
+		tlvstream_set_tlv_payload_data(
 			    fields, root->payment_secret,
 			    root->amount.millisatoshis); /* Raw: onion payload */
-		}
 	} else if (p->step == PAYMENT_STEP_FAILED && !p->abort) {
 		if (amount_msat_greater(p->amount, MPP_ADAPTIVE_LOWER_LIMIT)) {
 			struct payment *a, *b;

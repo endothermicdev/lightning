@@ -76,6 +76,9 @@ struct bolt11 {
 	/* Features bitmap, if any. */
 	u8 *features;
 
+	/* Optional metadata to send with payment. */
+	u8 *metadata;
+
 	struct list_head extra_fields;
 };
 
@@ -121,5 +124,10 @@ char *bolt11_encode_(const tal_t *ctx,
 				const u8 *,			\
 				secp256k1_ecdsa_recoverable_signature *rsig), \
 		       (arg))
+
+#if DEVELOPER
+/* Flag for tests to suppress `min_final_cltv_expiry` field generation, to match test vectors */
+extern bool dev_bolt11_no_c_generation;
+#endif
 
 #endif /* LIGHTNING_COMMON_BOLT11_H */

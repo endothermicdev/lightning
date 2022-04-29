@@ -321,6 +321,7 @@ static bool print_signature(const char *messagename,
 	if (secp256k1_schnorrsig_verify(secp256k1_ctx,
 					sig->u8,
 					shash.u.u8,
+					sizeof(shash.u.u8),
 					&node_id->pubkey) != 1) {
 		fprintf(stderr, "%s: INVALID\n", fieldname);
 		return false;
@@ -422,13 +423,13 @@ static void print_relative_expiry(u64 *created_at, u32 *relative)
 		       fmt_time(tmpctx, *created_at + *relative));
 }
 
-static void print_fallbacks(const struct tlv_invoice_fallbacks *fallbacks)
+static void print_fallbacks(struct fallback_address **fallbacks)
 {
-	for (size_t i = 0; i < tal_count(fallbacks->fallbacks); i++) {
+	for (size_t i = 0; i < tal_count(fallbacks); i++) {
 		/* FIXME: format properly! */
 		printf("fallback: %u %s\n",
-		       fallbacks->fallbacks[i]->version,
-		       tal_hex(tmpctx, fallbacks->fallbacks[i]->address));
+		       fallbacks[i]->version,
+		       tal_hex(tmpctx, fallbacks[i]->address));
 	}
 }
 
@@ -556,12 +557,20 @@ int main(int argc, char *argv[])
 			print_features(invreq->features);
 		if (invreq->quantity)
 			print_quantity(*invreq->quantity);
-		if (must_have(invreq, payer_signature))
-			well_formed &= print_signature("invoice_request",
-						       "payer_signature",
-						       invreq->fields,
-						       invreq->payer_key,
-						       invreq->payer_signature);
+		if (must_have(invreq, signature)) {
+			if (!print_signature("invoice_request",
+					     "signature",
+					     invreq->fields,
+					     invreq->payer_key,
+					     invreq->signature)) {
+				/* FIXME: We temporarily allow the old "payer_signature" name */
+				well_formed &= print_signature("invoice_request",
+							       "payer_signature",
+							       invreq->fields,
+							       invreq->payer_key,
+							       invreq->signature);
+			}
+		}
 		if (invreq->recurrence_counter) {
 			print_recurrence_counter(invreq->recurrence_counter,
 						 invreq->recurrence_start);

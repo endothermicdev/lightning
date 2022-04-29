@@ -18,7 +18,7 @@ It's in C, to encourage alternate implementations.  Patches are welcome!
 You should read our [Style Guide](STYLE.md).
 
 To read the code, you should start from
-[lightningd.c](../lightningd/lightningd.c) and hop your way through
+[lightningd.c](https://github.com/ElementsProject/lightning/blob/master/lightningd/lightningd.c) and hop your way through
 the '~' comments at the head of each daemon in the suggested
 order.
 
@@ -91,7 +91,7 @@ Here's a list of parts, with notes:
 Debugging
 ---------
 
-You can build c-lightning with DEVELOPER=1 to use dev commands listed in
+You can build Core Lightning with DEVELOPER=1 to use dev commands listed in
 ``cli/lightning-cli help``. ``./configure --enable-developer`` will do that.
 You can log console messages with log_info() in lightningd and status_debug()
 in other subdaemons.
@@ -110,7 +110,7 @@ subdaemon will be stopped (it sends itself a SIGSTOP); you'll need to
 Database
 --------
 
-c-lightning state is persisted in `lightning-dir`.
+Core Lightning state is persisted in `lightning-dir`.
 It is a sqlite database stored in the `lightningd.sqlite3` file, typically
 under `~/.lightning/<network>/`.
 You can run queries against this file like so:
@@ -160,16 +160,14 @@ lightning funds.
 
 Build and Development
 ---------------------
-Install `valgrind` and the python dependencies for best results:
+Install the following dependencies for best results:
 
 ```
 sudo apt update
 sudo apt install valgrind cppcheck shellcheck libsecp256k1-dev libpq-dev
-pip3 install --upgrade pip
-pip3 install --user -r requirements.txt
 ```
 
-Re-run `configure` for the python dependencies and build using `make`.
+Re-run `configure` and build using `make`:
 
 ```
 ./configure --enable-developer
@@ -193,7 +191,7 @@ A modern desktop can build and run through all the tests in a couple of minutes 
 
 Adjust `-j` and `PYTEST_PAR` accordingly for your hardware.
 
-There are three kinds of tests:
+There are four kinds of tests:
 
 * **source tests** - run by `make check-source`, looks for whitespace,
   header order, and checks formatted quotes from BOLTs if BOLTDIR
@@ -227,7 +225,7 @@ There are three kinds of tests:
 
   `make check-python`
 
-Our Travis CI instance (see `.travis.yml`) runs all these for each
+Our Github Actions instance (see `.github/workflows/*.yml`) runs all these for each
 pull request.
 
 #### Additional Environment Variables
@@ -241,6 +239,37 @@ TEST_DB_PROVIDER=[sqlite3|postgres] - Selects the database to use when running
                                       blackbox tests.
 EXPERIMENTAL_DUAL_FUND=[0|1]	    - Enable dual-funding tests.
 ```
+
+#### Troubleshooting
+
+##### Valgrind complains about code we don't control
+
+Sometimes `valgrind` will complain about code we do not control
+ourselves, either because it's in a library we use or it's a false
+positive. There are generally three ways to address these issues
+(in descending order of preference):
+
+ 1. Add a suppression for the one specific call that is causing the
+    issue. Upon finding an issue `valgrind` is instructed in the
+    testing framework to print filters that'd match the issue. These
+    can be added to the suppressions file under
+    `tests/valgrind-suppressions.txt` in order to explicitly skip
+    reporting these in future. This is preferred over the other
+    solutions since it only disables reporting selectively for things
+    that were manually checked. See the [valgrind docs][vg-supp] for
+    details.
+ 2. Add the process that `valgrind` is complaining about to the
+    `--trace-children-skip` argument in `pyln-testing`. This is used
+    in cases of full binaries not being under our control, such as the
+    `python3` interpreter used in tests that run plugins. Do not use
+    this for binaries that are compiled from our code, as it tends to
+    mask real issues.
+ 3. Mark the test as skipped if running under `valgrind`. It's mostly
+    used to skip tests that otherwise would take considerably too long
+    to test on CI. We discourage this for suppressions, since it is a
+    very blunt tool.
+
+[vg-supp]: https://valgrind.org/docs/manual/manual-core.html#manual-core.suppress
 
 Making BOLT Modifications
 -------------------------

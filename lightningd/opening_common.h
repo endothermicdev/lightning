@@ -87,6 +87,9 @@ struct funding_channel {
 	/* Whether or not this is in the middle of getting funded */
 	bool inflight;
 
+	/* Initial openingd_funder_start msg */
+	const u8 *open_msg;
+
 	/* Any commands trying to cancel us. */
 	struct command **cancels;
 
@@ -95,8 +98,7 @@ struct funding_channel {
 	struct peer_fd *peer_fd;
 };
 
-struct uncommitted_channel *
-new_uncommitted_channel(struct peer *peer);
+struct uncommitted_channel *new_uncommitted_channel(struct peer *peer);
 
 void opend_channel_errmsg(struct uncommitted_channel *uc,
 			  struct peer_fd *peer_fd,
@@ -120,17 +122,5 @@ void channel_config(struct lightningd *ld,
 		    struct channel_config *ours,
 		    u32 *max_to_self_delay,
 		    struct amount_msat *min_effective_htlc_capacity);
-
-void handle_reestablish(struct lightningd *ld,
-			const struct node_id *peer_id,
-			const struct channel_id *channel_id,
-			const u8 *reestablish,
-			struct peer_fd *peer_fd);
-
-#if DEVELOPER
-struct command;
-/* Calls report_leak_info() async. */
-void opening_dev_memleak(struct command *cmd);
-#endif
 
 #endif /* LIGHTNING_LIGHTNINGD_OPENING_COMMON_H */

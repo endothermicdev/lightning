@@ -60,6 +60,9 @@ void towire_secp256k1_ecdsa_signature(u8 **pptr UNNEEDED,
 /* Generated stub for towire_sha256 */
 void towire_sha256(u8 **pptr UNNEEDED, const struct sha256 *sha256 UNNEEDED)
 { fprintf(stderr, "towire_sha256 called!\n"); abort(); }
+/* Generated stub for towire_tu16 */
+void towire_tu16(u8 **pptr UNNEEDED, u16 v UNNEEDED)
+{ fprintf(stderr, "towire_tu16 called!\n"); abort(); }
 /* Generated stub for towire_tu32 */
 void towire_tu32(u8 **pptr UNNEEDED, u32 v UNNEEDED)
 { fprintf(stderr, "towire_tu32 called!\n"); abort(); }
@@ -155,16 +158,18 @@ int main(int argc, char *argv[])
 
 		/* Now do it via type-specific fromwire. */
 		if (streq(tlvtype, "n1")) {
-			struct tlv_n1 *n1 = tlv_n1_new(tmpctx);
+			struct tlv_n1 *n1;
 			size_t len = tal_bytelen(tlv);
-			assert(fromwire_n1(&tlv, &len, n1));
+			n1 = fromwire_tlv_n1(tmpctx, &tlv, &len);
+			assert(n1);
 			assert(len == 0);
 			merkle_tlv(n1->fields, &merkle);
 			assert(sha256_eq(&merkle, &expected_merkle));
 		} else if (streq(tlvtype, "offer")) {
-			struct tlv_offer *offer = tlv_offer_new(tmpctx);
+			struct tlv_offer *offer;
 			size_t len = tal_bytelen(tlv);
-			assert(fromwire_offer(&tlv, &len, offer));
+			offer = fromwire_tlv_offer(tmpctx, &tlv, &len);
+			assert(offer);
 			assert(len == 0);
 			merkle_tlv(offer->fields, &merkle);
 			assert(sha256_eq(&merkle, &expected_merkle));

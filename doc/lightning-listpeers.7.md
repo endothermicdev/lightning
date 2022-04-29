@@ -4,7 +4,7 @@ lightning-listpeers -- Command returning data on connected lightning nodes
 SYNOPSIS
 --------
 
-**listpeers** \[*id*\] \[*level*\]
+**listpeers** [*id*] [*level*]
 
 DESCRIPTION
 -----------
@@ -53,7 +53,7 @@ On success, an object containing **peers** is returned.  It is an array of objec
     - **perkb** (u32): Feerate per 1000 virtual bytes
   - **owner** (string, optional): The current subdaemon controlling this connection
   - **short_channel_id** (short_channel_id, optional): The short_channel_id (once locked in)
-  - **channel_id** (hex, optional): The full channel_id (always 64 characters)
+  - **channel_id** (hash, optional): The full channel_id (always 64 characters)
   - **funding_txid** (txid, optional): ID of the funding transaction
   - **funding_outnum** (u32, optional): The 0-based output number of the funding transaction which opens the channel
   - **initial_feerate** (string, optional): For inflight opens, the first feerate used to initiate the channel open
@@ -73,6 +73,7 @@ On success, an object containing **peers** is returned.  It is an array of objec
   - **funding** (object, optional):
     - **local_msat** (msat): Amount of channel we funded
     - **remote_msat** (msat): Amount of channel they funded
+    - **pushed_msat** (msat): Amount pushed from opener to peer
   - **to_us_msat** (msat, optional): how much of channel is owed to us
   - **min_to_us_msat** (msat, optional): least amount owed to us ever
   - **max_to_us_msat** (msat, optional): most amount owed to us ever
@@ -86,6 +87,8 @@ On success, an object containing **peers** is returned.  It is an array of objec
   - **spendable_msat** (msat, optional): total we could send through channel
   - **receivable_msat** (msat, optional): total peer could send through channel
   - **minimum_htlc_in_msat** (msat, optional): the minimum amount HTLC we accept
+  - **minimum_htlc_out_msat** (msat, optional): the minimum amount HTLC we will send
+  - **maximum_htlc_out_msat** (msat, optional): the maximum amount HTLC we will send
   - **their_to_self_delay** (u32, optional): the number of blocks before they can take their funds if they unilateral close
   - **our_to_self_delay** (u32, optional): the number of blocks before we can take our funds if we unilateral close
   - **max_accepted_htlcs** (u32, optional): Maximum number of incoming HTLC we will accept at once
@@ -110,7 +113,7 @@ On success, an object containing **peers** is returned.  It is an array of objec
     - **id** (u64): Unique ID for this htlc on this channel in this direction
     - **amount_msat** (msat): Amount send/received for this HTLC
     - **expiry** (u32): Block this HTLC expires at
-    - **payment_hash** (hex): the hash of the payment_preimage which will prove payment (always 64 characters)
+    - **payment_hash** (hash): the hash of the payment_preimage which will prove payment (always 64 characters)
     - **local_trimmed** (boolean, optional): if this is too small to enforce onchain (always *true*)
     - **status** (string, optional): set if this HTLC is currently waiting on a hook (and shows what plugin)
 
@@ -368,7 +371,7 @@ SEE ALSO
 --------
 
 lightning-connect(7), lightning-fundchannel\_start(7),
-lightning-setchannelfee(7)
+lightning-setchannel(7)
 
 RESOURCES
 ---------
@@ -377,4 +380,4 @@ Main web site: <https://github.com/ElementsProject/lightning> Lightning
 RFC site (BOLT \#9):
 <https://github.com/lightningnetwork/lightning-rfc/blob/master/09-features.md>
 
-[comment]: # ( SHA256STAMP:d45de73a968bcc3e7fb699f0acd7a27a4c70d9e9fded8af8c684a71fe012f1ce)
+[comment]: # ( SHA256STAMP:6b0ec5c899c8685487190209f594635030205a275e1dc6d61a7b057adbf66192)

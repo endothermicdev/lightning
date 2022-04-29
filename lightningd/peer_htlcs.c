@@ -13,6 +13,7 @@
 #include <common/param.h>
 #include <common/timeout.h>
 #include <common/type_to_string.h>
+#include <db/exec.h>
 #include <gossipd/gossipd_wiregen.h>
 #include <lightningd/chaintopology.h>
 #include <lightningd/channel.h>
@@ -362,7 +363,8 @@ static void handle_localpay(struct htlc_in *hin,
 			    struct amount_msat amt_to_forward,
 			    u32 outgoing_cltv_value,
 			    struct amount_msat total_msat,
-			    const struct secret *payment_secret)
+			    const struct secret *payment_secret,
+			    const u8 *payment_metadata)
 {
 	const u8 *failmsg;
 	struct lightningd *ld = hin->key.channel->peer->ld;
@@ -423,6 +425,27 @@ static void handle_localpay(struct htlc_in *hin,
 		goto fail;
 	}
 
+	/* We don't expect payment_metadata; reject here */
+	if (payment_metadata) {
+		log_debug(hin->key.channel->log,
+			  "Unexpected payment_metadata %s",
+			  tal_hex(tmpctx, payment_metadata));
+		/* BOLT #4:
+		 * 1. type: PERM|22 (`invalid_onion_payload`)
+		 * 2. data:
+		 *    * [`bigsize`:`type`]
+		 *    * [`u16`:`offset`]
+		 *
+		 * The decrypted onion per-hop payload was not understood by the processing node
+		 * or is incomplete. If the failure can be narrowed down to a specific tlv type in
+		 * the payload, the erring node may include that `type` and its byte `offset` in
+		 * the decrypted byte stream.
+		 */
+		failmsg = towire_invalid_onion_payload(NULL, TLV_TLV_PAYLOAD_PAYMENT_METADATA,
+						       /* FIXME: offset? */ 0);
+		goto fail;
+	}
+
 	htlc_set_add(ld, hin, total_msat, payment_secret);
 	return;
 
@@ -464,6 +487,21 @@ static void destroy_hout_subd_died(struct htlc_out *hout)
 		db_commit_transaction(db);
 }
 
+static enum forward_style get_onion_style(const struct htlc_in *hin)
+{
+	/* This happens on reload from db; don't try too hard! */
+	if (!hin->payload)
+		return FORWARD_STYLE_UNKNOWN;
+
+	switch (hin->payload->type) {
+	case ONION_V0_PAYLOAD:
+		return FORWARD_STYLE_LEGACY;
+	case ONION_TLV_PAYLOAD:
+		return FORWARD_STYLE_TLV;
+	}
+	abort();
+}
+
 /* This is where channeld gives us the HTLC id, and also reports if it
  * failed immediately. */
 static void rcvd_htlc_reply(struct subd *subd, const u8 *msg, const int *fds UNUSED,
@@ -502,7 +540,9 @@ static void rcvd_htlc_reply(struct subd *subd, const u8 *msg, const int *fds UNU
 			/* here we haven't called connect_htlc_out(),
 			 * so set htlc field with NULL */
 			wallet_forwarded_payment_add(ld->wallet,
-					 hout->in, NULL, NULL,
+					 hout->in,
+					 get_onion_style(hout->in),
+					 NULL, NULL,
 					 FORWARD_LOCAL_FAILED,
 						     fromwire_peektype(hout->failmsg));
 		}
@@ -620,14 +660,49 @@ static void forward_htlc(struct htlc_in *hin,
 {
 	const u8 *failmsg;
 	struct lightningd *ld = hin->key.channel->peer->ld;
-	struct channel *next = active_channel_by_scid(ld, scid);
+	struct channel *next;
 	struct htlc_out *hout = NULL;
 
+	/* This is a shortcut for specifying next peer; doesn't mean
+	 * the actual channel! */
+	next = any_channel_by_scid(ld, scid);
+	if (next) {
+		struct peer *peer = next->peer;
+		struct channel *channel;
+		struct amount_msat best_spendable = channel_amount_spendable(next);
+
+		/* Seek channel with largest spendable! */
+		list_for_each(&peer->channels, channel, list) {
+			struct amount_msat spendable;
+			if (!channel_can_add_htlc(channel))
+				continue;
+			spendable = channel_amount_spendable(channel);
+			if (!amount_msat_greater(spendable, best_spendable))
+				continue;
+
+			/* Don't override if fees differ... */
+			if (channel->feerate_base != next->feerate_base
+			    || channel->feerate_ppm != next->feerate_ppm)
+				continue;
+			/* Or if this would be below min for channel! */
+			if (amount_msat_less(amt_to_forward,
+					     channel->channel_info.their_config.htlc_minimum))
+				continue;
+
+			/* OK, it's better! */
+			log_debug(next->log, "Chose a better channel: %s",
+				  type_to_string(tmpctx, struct short_channel_id,
+						 channel->scid));
+			next = channel;
+		}
+	}
+
 	/* Unknown peer, or peer not ready. */
-	if (!next || !next->scid) {
+	if (!next || !channel_active(next)) {
 		local_fail_in_htlc(hin, take(towire_unknown_next_peer(NULL)));
 		wallet_forwarded_payment_add(hin->key.channel->peer->ld->wallet,
-					 hin, next ? next->scid : NULL, NULL,
+					 hin, get_onion_style(hin),
+					 next ? next->scid : NULL, NULL,
 					 FORWARD_LOCAL_FAILED,
 					 WIRE_UNKNOWN_NEXT_PEER);
 		return;
@@ -653,6 +728,20 @@ static void forward_htlc(struct htlc_in *hin,
 		}
 		log_info(hin->key.channel->log,
 			 "Allowing payment using older feerate");
+	}
+
+	if (amount_msat_greater(amt_to_forward, next->htlc_maximum_msat)
+	    || amount_msat_less(amt_to_forward, next->htlc_minimum_msat)) {
+		/* Are we in old-range grace-period? */
+		if (!time_before(time_now(), next->old_feerate_timeout)
+		    || amount_msat_less(amt_to_forward, next->old_htlc_minimum_msat)
+		    || amount_msat_greater(amt_to_forward, next->old_htlc_maximum_msat)) {
+			failmsg = towire_temporary_channel_failure(tmpctx,
+								   get_channel_update(next));
+			goto fail;
+		}
+		log_info(hin->key.channel->log,
+			 "Allowing htlc using older htlc_minimum/maximum_msat");
 	}
 
 	if (!check_cltv(hin, cltv_expiry, outgoing_cltv_value,
@@ -708,7 +797,7 @@ static void forward_htlc(struct htlc_in *hin,
 fail:
 	local_fail_in_htlc(hin, failmsg);
 	wallet_forwarded_payment_add(ld->wallet,
-				 hin, next->scid, hout,
+				 hin, get_onion_style(hin), next->scid, hout,
 				 FORWARD_LOCAL_FAILED,
 				 fromwire_peektype(failmsg));
 }
@@ -743,8 +832,6 @@ static u8 *convert_failcode(const tal_t *ctx,
 		return towire_permanent_node_failure(ctx);
 	case WIRE_REQUIRED_NODE_FEATURE_MISSING:
 		return towire_required_node_feature_missing(ctx);
-	case WIRE_CHANNEL_DISABLED:
-		return towire_channel_disabled(ctx);
 	case WIRE_PERMANENT_CHANNEL_FAILURE:
 		return towire_permanent_channel_failure(ctx);
 	case WIRE_REQUIRED_CHANNEL_FEATURE_MISSING:
@@ -968,6 +1055,10 @@ static void htlc_accepted_hook_serialize(struct htlc_accepted_hook_payload *p,
 			json_add_secret(s, "payment_secret",
 					p->payload->payment_secret);
 		}
+		if (p->payload->payment_metadata) {
+			json_add_hex_talarr(s, "payment_metadata",
+					    p->payload->payment_metadata);
+		}
 	}
 	json_add_hex_talarr(s, "next_onion", p->next_onion);
 	json_add_secret(s, "shared_secret", hin->shared_secret);
@@ -1017,7 +1108,8 @@ htlc_accepted_hook_final(struct htlc_accepted_hook_payload *request STEALS)
 				request->payload->amt_to_forward,
 				request->payload->outgoing_cltv,
 				*request->payload->total_msat,
-				request->payload->payment_secret);
+				request->payload->payment_secret,
+				request->payload->payment_metadata);
 
 	tal_free(request);
 }
@@ -1234,6 +1326,7 @@ static void fulfill_our_htlc_out(struct channel *channel, struct htlc_out *hout,
 	else if (hout->in) {
 		fulfill_htlc(hout->in, preimage);
 		wallet_forwarded_payment_add(ld->wallet, hout->in,
+					     get_onion_style(hout->in),
 					     hout->key.channel->scid, hout,
 					     FORWARD_SETTLED, 0);
 	}
@@ -1361,6 +1454,7 @@ static bool peer_failed_our_htlc(struct channel *channel,
 
 	if (hout->in)
 		wallet_forwarded_payment_add(ld->wallet, hout->in,
+					     get_onion_style(hout->in),
 					     channel->scid,
 					     hout, FORWARD_FAILED,
 					     hout->failmsg
@@ -1370,20 +1464,117 @@ static bool peer_failed_our_htlc(struct channel *channel,
 	return true;
 }
 
+/* We've had a bug report about not failing incoming HTLCs.  This does a sanity
+ * check, if we think we've already failed this HTLC */
+static void check_already_failed(const struct channel *channel, struct htlc_out *hout)
+{
+	htlc_out_check(hout, __func__);
+
+	if (!hout->in)
+		return;
+
+	/* in should have been failed/succeeded already */
+	if (hout->in->badonion != 0
+	    || hout->in->failonion
+	    || hout->in->preimage)
+		return;
+
+	/* Print out what we think this htlc already has (failed/succeeded) */
+	log_broken(channel->log, "HTLC id %"PRIu64" already complete, but ->in not resolved!"
+		   " failonion = %s, failmsg = %s, preimage = %s",
+		   hout->key.id,
+		   hout->failonion ? tal_hex(tmpctx, hout->failonion->contents) : "(null)",
+		   hout->failmsg ? tal_hex(tmpctx, hout->failmsg) : "(null)",
+		   hout->preimage ? type_to_string(tmpctx, struct preimage, hout->preimage) : "(null)");
+
+	if (hout->preimage) {
+		/* Log on both ours and theirs! */
+		log_broken(channel->log,
+			   "MISSING incoming success for %"PRIu64": succeeding incoming now",
+			   hout->key.id);
+		log_broken(hout->in->key.channel->log,
+			   "MISSED incoming success for %"PRIu64": succeeding now",
+			   hout->in->key.id);
+		fulfill_htlc(hout->in, hout->preimage);
+	} else {
+		log_broken(channel->log,
+			   "MISSING incoming fail for %"PRIu64": failing incoming now",
+			   hout->key.id);
+		log_broken(hout->in->key.channel->log,
+			   "MISSED incoming fail for %"PRIu64": failing now",
+			   hout->in->key.id);
+		local_fail_in_htlc(hout->in,
+				   take(towire_permanent_channel_failure(NULL)));
+	}
+}
+
+/* This case searches harder to see if there are any incoming HTLCs */
+static void fail_dangling_htlc_in(struct lightningd *ld,
+				  const struct sha256 *payment_hash)
+{
+	struct htlc_in *hin;
+	struct htlc_in_map_iter ini;
+
+	for (hin = htlc_in_map_first(&ld->htlcs_in, &ini);
+	     hin;
+	     hin = htlc_in_map_next(&ld->htlcs_in, &ini)) {
+		if (!sha256_eq(&hin->payment_hash, payment_hash))
+			continue;
+		if (hin->badonion) {
+			log_broken(hin->key.channel->log,
+				   "htlc %"PRIu64" already failed with badonion",
+				   hin->key.id);
+		} else if (hin->preimage) {
+			log_broken(hin->key.channel->log,
+				   "htlc %"PRIu64" already succeeded with preimage",
+				   hin->key.id);
+		} else if (hin->failonion) {
+			log_broken(hin->key.channel->log,
+				   "htlc %"PRIu64" already failed with failonion %s",
+				   hin->key.id,
+				   tal_hex(tmpctx, hin->failonion->contents));
+		} else {
+			log_broken(hin->key.channel->log,
+				   "htlc %"PRIu64" has matching hash: failing",
+				   hin->key.id);
+			local_fail_in_htlc(hin,
+					   take(towire_permanent_channel_failure(NULL)));
+		}
+	}
+}
+
 void onchain_failed_our_htlc(const struct channel *channel,
 			     const struct htlc_stub *htlc,
-			     const char *why)
+			     const char *why,
+			     bool should_exist)
 {
 	struct lightningd *ld = channel->peer->ld;
 	struct htlc_out *hout;
 
+	log_debug(channel->log, "onchain_failed_our_htlc");
 	hout = find_htlc_out(&ld->htlcs_out, channel, htlc->id);
-	if (!hout)
+	if (!hout) {
+		/* For penalty transactions, tell onchaind about all possible
+		 * HTLCs: they may not all exist any more. */
+		if (should_exist)
+			log_broken(channel->log, "HTLC id %"PRIu64" not found!",
+				   htlc->id);
+		/* Immediate corruption sanity check if this happens */
+		htable_check(&ld->htlcs_out.raw, "onchain_failed_our_htlc out");
+		htable_check(&ld->htlcs_in.raw, "onchain_failed_our_htlc in");
 		return;
+	}
 
 	/* Don't fail twice (or if already succeeded)! */
-	if (hout->failonion || hout->failmsg || hout->preimage)
+	if (hout->failonion || hout->failmsg || hout->preimage) {
+		log_debug(channel->log, "HTLC id %"PRIu64" failonion = %p, failmsg = %p, preimage = %p",
+			  htlc->id,
+			  hout->failonion,
+			  hout->failmsg,
+			  hout->preimage);
+		check_already_failed(channel, hout);
 		return;
+	}
 
 	hout->failmsg = towire_permanent_channel_failure(hout);
 
@@ -1400,6 +1591,8 @@ void onchain_failed_our_htlc(const struct channel *channel,
 			   hout->failmsg, &we_filled);
 
 	if (hout->am_origin) {
+		log_debug(channel->log, "HTLC id %"PRIu64" am origin",
+			  htlc->id);
 		assert(why != NULL);
 		char *localfail = tal_fmt(channel, "%s: %s",
 					  onion_wire_name(WIRE_PERMANENT_CHANNEL_FAILURE),
@@ -1407,14 +1600,25 @@ void onchain_failed_our_htlc(const struct channel *channel,
 		payment_failed(ld, hout, localfail);
 		tal_free(localfail);
 	} else if (hout->in) {
+		log_debug(channel->log, "HTLC id %"PRIu64" has incoming",
+			  htlc->id);
 		local_fail_in_htlc(hout->in,
 				   take(towire_permanent_channel_failure(NULL)));
 		wallet_forwarded_payment_add(hout->key.channel->peer->ld->wallet,
-					 hout->in, channel->scid, hout,
+					 hout->in, get_onion_style(hout->in),
+					 channel->scid, hout,
 					 FORWARD_LOCAL_FAILED,
 					 hout->failmsg
 					 ? fromwire_peektype(hout->failmsg)
 					 : 0);
+	} else {
+		log_broken(channel->log, "HTLC id %"PRIu64" is from nowhere?",
+			   htlc->id);
+
+		/* Immediate corruption sanity check if this happens */
+		htable_check(&ld->htlcs_out.raw, "onchain_failed_our_htlc out");
+		htable_check(&ld->htlcs_in.raw, "onchain_failed_our_htlc in");
+		fail_dangling_htlc_in(ld, &hout->payment_hash);
 	}
 }
 
@@ -1568,6 +1772,7 @@ static bool update_out_htlc(struct channel *channel,
 
 		if (hout->in) {
 			wallet_forwarded_payment_add(ld->wallet, hout->in,
+						     get_onion_style(hout->in),
 						     channel->scid, hout,
 						     FORWARD_OFFERED, 0);
 		}
@@ -1767,7 +1972,8 @@ static bool channel_added_their_htlc(struct channel *channel,
 	/* BOLT #2:
 	 *
 	 *  - receiving an `amount_msat` equal to 0, OR less than its own `htlc_minimum_msat`:
-	 *    - SHOULD fail the channel.
+	 *     - SHOULD send a `warning` and close the connection, or send an
+	 *       `error` and fail the channel.
 	 */
 	if (amount_msat_eq(added->amount, AMOUNT_MSAT(0))
 	    || amount_msat_less(added->amount, channel->our_config.htlc_minimum)) {
@@ -2102,7 +2308,8 @@ void peer_got_revoke(struct channel *channel, const u8 *msg)
 	 *
 	 *   - if the `per_commitment_secret` was not generated by the protocol
 	 *     in [BOLT #3](03-transactions.md#per-commitment-secret-requirements):
-	 *     - MAY fail the channel.
+	 *     - MAY send a `warning` and close the connection, or send an
+	 *       `error` and fail the channel.
 	 */
 	if (!wallet_shachain_add_hash(ld->wallet,
 				      &channel->their_shachain,
@@ -2147,7 +2354,7 @@ void peer_got_revoke(struct channel *channel, const u8 *msg)
 
 		// in fact, now we don't know if this htlc is a forward or localpay!
 		wallet_forwarded_payment_add(ld->wallet,
-					 hin, NULL, NULL,
+					 hin, FORWARD_STYLE_UNKNOWN, NULL, NULL,
 					 FORWARD_LOCAL_FAILED,
 					 badonions[i] ? badonions[i]
 					     : fromwire_peektype(failmsgs[i]));
@@ -2310,6 +2517,7 @@ void htlcs_notify_new_block(struct lightningd *ld, u32 height)
 	 *
 	 *   - if an HTLC which it offered is in either node's current
 	 *   commitment transaction, AND is past this timeout deadline:
+	 *     - SHOULD send an `error` to the receiving peer (if connected).
 	 *     - MUST fail the channel.
 	 */
 	/* FIXME: use db to look this up in one go (earliest deadline per-peer) */
@@ -2354,6 +2562,7 @@ void htlcs_notify_new_block(struct lightningd *ld, u32 height)
 	 *...
 	 *   - if an HTLC it has fulfilled is in either node's current commitment
 	 *   transaction, AND is past this fulfillment deadline:
+	 *     - SHOULD send an `error` to the offering peer (if connected).
 	 *     - MUST fail the channel.
 	 */
 	do {
@@ -2563,6 +2772,11 @@ void json_format_forwarding_object(struct json_stream *response,
 		json_add_string(response, "failreason",
 				onion_wire_name(cur->failcode));
 	}
+
+	/* Old forwards don't have this field */
+	if (cur->forward_style != FORWARD_STYLE_UNKNOWN)
+		json_add_string(response, "style",
+				forward_style_name(cur->forward_style));
 
 #ifdef COMPAT_V070
 		/* If a forwarding doesn't have received_time it was created

@@ -1,7 +1,7 @@
-# This dockerfile is meant to compile a c-lightning x64 image
+# This dockerfile is meant to compile a core-lightning x64 image
 # It is using multi stage build:
-# * downloader: Download litecoin/bitcoin and qemu binaries needed for c-lightning
-# * builder: Compile c-lightning dependencies, then c-lightning itself with static linking
+# * downloader: Download litecoin/bitcoin and qemu binaries needed for core-lightning
+# * builder: Compile core-lightning dependencies, then c-lightning itself with static linking
 # * final: Copy the binaries required at runtime
 # The resulting image uploaded to dockerhub will only contain what is needed for runtime.
 # From the root of the repository, run "docker build -t yourimage:yourtag ."
@@ -48,14 +48,34 @@ RUN mkdir /opt/litecoin && cd /opt/litecoin \
 FROM debian:buster-slim as builder
 
 ENV LIGHTNINGD_VERSION=master
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates autoconf automake build-essential git libtool python3 python3-pip python3-setuptools python3-mako wget gnupg dirmngr git gettext
+RUN apt-get update -qq && \
+    apt-get install -qq -y --no-install-recommends \
+        autoconf \
+        automake \
+        build-essential \
+        ca-certificates \
+        curl \
+        dirmngr \
+        gettext \
+        git \
+        gnupg \
+        libpq-dev \
+        libtool \
+        libffi-dev \
+        python3 \
+        python3-dev \
+        python3-mako \
+        python3-pip \
+        python3-venv \
+        python3-setuptools \
+        wget
 
-RUN wget -q https://zlib.net/zlib-1.2.11.tar.gz \
-&& tar xvf zlib-1.2.11.tar.gz \
-&& cd zlib-1.2.11 \
+RUN wget -q https://zlib.net/zlib-1.2.12.tar.gz \
+&& tar xvf zlib-1.2.12.tar.gz \
+&& cd zlib-1.2.12 \
 && ./configure \
 && make \
-&& make install && cd .. && rm zlib-1.2.11.tar.gz && rm -rf zlib-1.2.11
+&& make install && cd .. && rm zlib-1.2.12.tar.gz && rm -rf zlib-1.2.12
 
 RUN apt-get install -y --no-install-recommends unzip tclsh \
 && wget -q https://www.sqlite.org/2019/sqlite-src-3290000.zip \
@@ -76,18 +96,20 @@ WORKDIR /opt/lightningd
 COPY . /tmp/lightning
 RUN git clone --recursive /tmp/lightning . && \
     git checkout $(git --work-tree=/tmp/lightning --git-dir=/tmp/lightning/.git rev-parse HEAD)
-
 ARG DEVELOPER=0
 ENV PYTHON_VERSION=3
-RUN apt-get install -y --no-install-recommends python3-dev
-RUN pip3 install -U pip && pip3 install -r requirements.lock
+RUN curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/install-poetry.py | python3 - \
+    && pip3 install -U pip \
+    && pip3 install -U wheel \
+    && /root/.local/bin/poetry config virtualenvs.create false \
+    && /root/.local/bin/poetry install
 
 RUN ./configure --prefix=/tmp/lightning_install --enable-static && make -j3 DEVELOPER=${DEVELOPER} && make install
 
 FROM debian:buster-slim as final
 
 COPY --from=downloader /opt/tini /usr/bin/tini
-RUN apt-get update && apt-get install -y --no-install-recommends socat inotify-tools python3 python3-pip \
+RUN apt-get update && apt-get install -y --no-install-recommends socat inotify-tools python3 python3-pip libpq5\
     && rm -rf /var/lib/apt/lists/*
 
 ENV LIGHTNINGD_DATA=/root/.lightning

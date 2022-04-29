@@ -70,8 +70,13 @@ Note that if you already have a channel open to them, you'll need to close it be
 ### Are there any issues if my node changes its IP address? What happens to the channels if it does?
 
 There is no risk to your channels if your IP address changes.
-However, be sure to change your announced address (or [setup a TOR hidden service](TOR.md))
-in your config so that others can establish connections at your new address !
+Other nodes might not be able to connect to you, but your node can still connect to them.
+But Core Lightning also has an integrated IPv4/6 address discovery mechanism.
+If your node detects an new public address, it will update its announcement.
+For this to work binhind a NAT router you need to forward the TCP port 9735 to your node.
+
+Alternatively, you can [setup a TOR hidden service](TOR.md) for your node that
+will also work well behind NAT firewalls.
 
 ### Can I have two hosts with the same public key and different IP addresses, both online and operating at the same time?
 
@@ -86,7 +91,7 @@ If you use a single `bitcoind` for multiple `lightningd`'s, be sure to raise the
 max RPC thread limit (`-rpcthreads`), each `lightningd` can use up to 4 threads, which is
 the default `bitcoind` max.
 
-### Can I use C-lightning on mobile ?
+### Can I use Core Lightning on mobile ?
 
 #### Remote control
 
@@ -108,7 +113,7 @@ In summary: as a Bitcoin user, one may be familiar with a file or a seed
 (or some mnemonics) from which
 it can recover all its funds.
 
-C-lightning has an internal bitcoin wallet, which you can use to make "on-chain"
+Core Lightning has an internal bitcoin wallet, which you can use to make "on-chain"
 transactions, (see [withdraw](https://lightning.readthedocs.io/lightning-withdraw.7.html).
 These on-chain funds are backed up via the HD wallet seed, stored in byte-form in `hsm_secret`.
 
@@ -132,7 +137,7 @@ Tools for replication are currently in active development, using the `db_write`
 
 There are 3 types of 'rescans' you can make:
 - `rescanblockchain`: A `bitcoind` RPC call which rescans the blockchain
-   starting at the given height. This does not have an effect on c-lightning
+   starting at the given height. This does not have an effect on Core Lightning
    as `lightningd` tracks all block and wallet data independently.
 - `--rescan=depth`: A `lightningd` configuration flag. This flag is read at node startup
    and tells lightningd at what depth from current blockheight to rebuild its internal state.

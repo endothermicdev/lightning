@@ -83,6 +83,7 @@ bool bolt12_check_signature(const struct tlv_field *fields,
 	return secp256k1_schnorrsig_verify(secp256k1_ctx,
 					   sig->u8,
 					   shash.u.u8,
+					   sizeof(shash.u.u8),
 					   &key->pubkey) == 1;
 }
 
@@ -155,7 +156,7 @@ char *offer_encode(const tal_t *ctx, const struct tlv_offer *offer_tlv)
 	u8 *wire;
 
 	wire = tal_arr(tmpctx, u8, 0);
-	towire_offer(&wire, offer_tlv);
+	towire_tlv_offer(&wire, offer_tlv);
 
 	return to_bech32_charset(ctx, "lno", wire);
 }
@@ -166,17 +167,18 @@ struct tlv_offer *offer_decode(const tal_t *ctx,
 			       const struct chainparams *must_be_chain,
 			       char **fail)
 {
-	struct tlv_offer *offer = tlv_offer_new(ctx);
+	struct tlv_offer *offer;
 	const u8 *data;
 	size_t dlen;
 
 	data = string_to_data(tmpctx, b12, b12len, "lno", &dlen, fail);
 	if (!data)
-		return tal_free(offer);
+		return NULL;;
 
-	if (!fromwire_offer(&data, &dlen, offer)) {
+	offer = fromwire_tlv_offer(ctx, &data, &dlen);
+	if (!offer) {
 		*fail = tal_fmt(ctx, "invalid offer data");
-		return tal_free(offer);
+		return NULL;
 	}
 
 	*fail = check_features_and_chain(ctx,
@@ -208,7 +210,7 @@ char *invrequest_encode(const tal_t *ctx, const struct tlv_invoice_request *invr
 	u8 *wire;
 
 	wire = tal_arr(tmpctx, u8, 0);
-	towire_invoice_request(&wire, invrequest_tlv);
+	towire_tlv_invoice_request(&wire, invrequest_tlv);
 
 	return to_bech32_charset(ctx, "lnr", wire);
 }
@@ -219,17 +221,18 @@ struct tlv_invoice_request *invrequest_decode(const tal_t *ctx,
 					      const struct chainparams *must_be_chain,
 					      char **fail)
 {
-	struct tlv_invoice_request *invrequest = tlv_invoice_request_new(ctx);
+	struct tlv_invoice_request *invrequest;
 	const u8 *data;
 	size_t dlen;
 
 	data = string_to_data(tmpctx, b12, b12len, "lnr", &dlen, fail);
 	if (!data)
-		return tal_free(invrequest);
+		return NULL;
 
-	if (!fromwire_invoice_request(&data, &dlen, invrequest)) {
+	invrequest = fromwire_tlv_invoice_request(ctx, &data, &dlen);
+	if (!invrequest) {
 		*fail = tal_fmt(ctx, "invalid invoice_request data");
-		return tal_free(invrequest);
+		return NULL;
 	}
 
 	*fail = check_features_and_chain(ctx,
@@ -247,7 +250,7 @@ char *invoice_encode(const tal_t *ctx, const struct tlv_invoice *invoice_tlv)
 	u8 *wire;
 
 	wire = tal_arr(tmpctx, u8, 0);
-	towire_invoice(&wire, invoice_tlv);
+	towire_tlv_invoice(&wire, invoice_tlv);
 
 	return to_bech32_charset(ctx, "lni", wire);
 }
@@ -258,17 +261,18 @@ struct tlv_invoice *invoice_decode_nosig(const tal_t *ctx,
 					 const struct chainparams *must_be_chain,
 					 char **fail)
 {
-	struct tlv_invoice *invoice = tlv_invoice_new(ctx);
+	struct tlv_invoice *invoice;
 	const u8 *data;
 	size_t dlen;
 
 	data = string_to_data(tmpctx, b12, b12len, "lni", &dlen, fail);
 	if (!data)
-		return tal_free(invoice);
+		return NULL;
 
-	if (!fromwire_invoice(&data, &dlen, invoice)) {
+	invoice = fromwire_tlv_invoice(ctx, &data, &dlen);
+	if (!invoice) {
 		*fail = tal_fmt(ctx, "invalid invoice data");
-		return tal_free(invoice);
+		return NULL;
 	}
 
 	*fail = check_features_and_chain(ctx,

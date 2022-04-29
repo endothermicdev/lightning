@@ -126,7 +126,8 @@ template = Template("""#ifndef LIGHTNINGD_WALLET_GEN_DB_${f.upper()}
 
 #include <config.h>
 #include <ccan/array_size/array_size.h>
-#include <wallet/db_common.h>
+#include <db/common.h>
+#include <db/utils.h>
 
 #if HAVE_${f.upper()}
 % for colname, table in colhtables.items():
@@ -156,6 +157,13 @@ const struct db_query db_${f}_queries[] = {
 % endfor
 };
 
+struct db_query_set ${f}_query_set = {
+         .name = "${f}",
+         .query_table = db_${f}_queries,
+         .query_table_size = ARRAY_SIZE(db_${f}_queries),
+};
+
+AUTODATA(db_queries, &${f}_query_set);
 #endif /* HAVE_${f.upper()} */
 
 #endif /* LIGHTNINGD_WALLET_GEN_DB_${f.upper()} */

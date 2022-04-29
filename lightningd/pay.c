@@ -1,6 +1,7 @@
 #include "config.h"
 #include <ccan/tal/str/str.h>
 #include <common/bolt12_merkle.h>
+#include <common/configdir.h>
 #include <common/json_command.h>
 #include <common/json_helpers.h>
 #include <common/json_tok.h>
@@ -153,6 +154,8 @@ void json_add_payment_fields(struct json_stream *response,
 		else
 			json_add_string(response, "bolt11", t->invstring);
 	}
+	if (t->description)
+		json_add_string(response, "description", t->description);
 
 	if (t->failonion)
 		json_add_hex(response, "erroronion", t->failonion,
@@ -211,7 +214,7 @@ void json_sendpay_fail_fields(struct json_stream *js,
 		json_add_payment_fields(js, payment);
 	if (pay_errcode == PAY_UNPARSEABLE_ONION && onionreply)
 		json_add_hex_talarr(js, "onionreply", onionreply->contents);
-	else
+	else if (fail)
 		json_add_routefail_info(js,
 					fail->erring_index,
 					fail->failcode,
@@ -751,18 +754,6 @@ static struct command_result *wait_payment(struct lightningd *ld,
 	abort();
 }
 
-static bool should_use_tlv(enum route_hop_style style)
-{
-	switch (style) {
-	case ROUTE_HOP_TLV:
-		return true;
-		/* Otherwise fall thru */
-	case ROUTE_HOP_LEGACY:
-		return false;
-	}
-	abort();
-}
-
 /* Returns failmsg on failure, tallocated off ctx */
 static const u8 *send_onion(const tal_t *ctx, struct lightningd *ld,
 			    const struct onionpacket *packet,
@@ -838,6 +829,23 @@ static struct command_result *check_offer_usage(struct command *cmd,
 	return NULL;
 }
 
+static struct channel *find_channel_for_htlc_add(struct lightningd *ld,
+						 const struct node_id *node)
+{
+	struct channel *channel;
+	struct peer *peer = peer_by_id(ld, node);
+	if (!peer)
+		return NULL;
+
+	list_for_each(&peer->channels, channel, list) {
+		if (channel_can_add_htlc(channel)) {
+			return channel;
+		}
+	}
+
+	return NULL;
+}
+
 /* destination/route_channels/route_nodes are NULL (and path_secrets may be NULL)
  * if we're sending a raw onion. */
 static struct command_result *
@@ -851,6 +859,7 @@ send_payment_core(struct lightningd *ld,
 		  struct amount_msat total_msat,
 		  const char *label TAKES,
 		  const char *invstring TAKES,
+		  const char *description TAKES,
 		  const struct onionpacket *packet,
 		  const struct node_id *destination,
 		  struct node_id *route_nodes TAKES,
@@ -1026,8 +1035,8 @@ send_payment_core(struct lightningd *ld,
 	if (offer_err)
 		return offer_err;
 
-	channel = active_channel_by_id(ld, &first_hop->node_id, NULL);
-	if (!channel || !channel_can_add_htlc(channel)) {
+	channel = find_channel_for_htlc_add(ld, &first_hop->node_id);
+	if (!channel) {
 		struct json_stream *data
 			= json_stream_fail(cmd, PAY_TRY_OTHER_ROUTE,
 					   "No connection to first "
@@ -1094,6 +1103,10 @@ send_payment_core(struct lightningd *ld,
 		payment->invstring = tal_strdup(payment, invstring);
 	else
 		payment->invstring = NULL;
+	if (description != NULL)
+		payment->description = tal_strdup(payment, description);
+	else
+		payment->description = NULL;
 	payment->local_offer_id = tal_dup_or_null(payment, struct sha256,
 						  local_offer_id);
 
@@ -1115,8 +1128,10 @@ send_payment(struct lightningd *ld,
 	     struct amount_msat total_msat,
 	     const char *label TAKES,
 	     const char *invstring TAKES,
+	     const char *description TAKES,
 	     const struct sha256 *local_offer_id,
-	     const struct secret *payment_secret)
+	     const struct secret *payment_secret,
+	     const u8 *payment_metadata)
 {
 	unsigned int base_expiry;
 	struct onionpacket *packet;
@@ -1126,7 +1141,7 @@ send_payment(struct lightningd *ld,
 	struct short_channel_id *channels;
 	struct sphinx_path *path;
 	struct pubkey pubkey;
-	bool final_tlv, ret;
+	bool ret;
 	u8 *onion;
 
 	/* Expiry for HTLCs is absolute.  And add one to give some margin. */
@@ -1144,7 +1159,6 @@ send_payment(struct lightningd *ld,
 
 		sphinx_add_hop(path, &pubkey,
 			       take(onion_nonfinal_hop(NULL,
-					should_use_tlv(route[i].style),
 					&route[i + 1].scid,
 					route[i + 1].amount,
 					base_expiry + route[i + 1].delay,
@@ -1157,29 +1171,19 @@ send_payment(struct lightningd *ld,
 	ret = pubkey_from_node_id(&pubkey, &ids[i]);
 	assert(ret);
 
-	final_tlv = should_use_tlv(route[i].style);
 	/* BOLT #4:
 	 * - Unless `node_announcement`, `init` message or the
 	 *   [BOLT #11](11-payment-encoding.md#tagged-fields) offers feature
 	 *   `var_onion_optin`:
 	 *    - MUST use the legacy payload format instead.
 	 */
-	/* In our case, we don't use it unless we also have a payment_secret;
-	 * everyone should support this eventually */
-	if (!final_tlv && payment_secret)
-		final_tlv = true;
-
-	/* Parallel payments are invalid for legacy. */
-	if (partid && !final_tlv)
-		return command_fail(cmd, PAY_DESTINATION_PERM_FAIL,
-				    "Cannot do parallel payments to legacy node");
+	/* FIXME: This requirement is now obsolete, and we should remove it! */
 
 	onion = onion_final_hop(cmd,
-				final_tlv,
 				route[i].amount,
 				base_expiry + route[i].delay,
 				total_msat, route[i].blinding, route[i].enctlv,
-				payment_secret);
+				payment_secret, payment_metadata);
 	if (!onion) {
 		return command_fail(cmd, PAY_DESTINATION_PERM_FAIL,
 				    "Destination does not support"
@@ -1198,7 +1202,7 @@ send_payment(struct lightningd *ld,
 	packet = create_onionpacket(tmpctx, path, ROUTING_INFO_SIZE, &path_secrets);
 	return send_payment_core(ld, cmd, rhash, partid, group, &route[0],
 				 msat, total_msat,
-				 label, invstring,
+				 label, invstring, description,
 				 packet, &ids[n_hops - 1], ids,
 				 channels, path_secrets, local_offer_id);
 }
@@ -1269,7 +1273,7 @@ static struct command_result *json_sendonion(struct command *cmd,
 	struct route_hop *first_hop;
 	struct sha256 *payment_hash;
 	struct lightningd *ld = cmd->ld;
-	const char *label, *invstring;
+	const char *label, *invstring, *description;
 	struct node_id *destination;
 	struct secret *path_secrets;
 	struct amount_msat *msat;
@@ -1289,6 +1293,7 @@ static struct command_result *json_sendonion(struct command *cmd,
 		   p_opt("destination", param_node_id, &destination),
 		   p_opt("localofferid", param_sha256, &local_offer_id),
 		   p_opt("groupid", param_u64, &group),
+		   p_opt("description", param_string, &description),
 		   NULL))
 		return command_param_failed();
 
@@ -1310,7 +1315,8 @@ static struct command_result *json_sendonion(struct command *cmd,
 
 	return send_payment_core(ld, cmd, payment_hash, *partid, *group,
 				 first_hop, *msat, AMOUNT_MSAT(0),
-				 label, invstring, packet, destination, NULL, NULL,
+				 label, invstring, description,
+				 packet, destination, NULL, NULL,
 				 path_secrets, local_offer_id);
 }
 
@@ -1326,23 +1332,23 @@ AUTODATA(json_command, &sendonion_command);
 JSON-RPC sendpay interface
 -----------------------------------------------------------------------------*/
 
+/* FIXME: We accept his parameter for now, will deprecate eventually */
 static struct command_result *param_route_hop_style(struct command *cmd,
 						    const char *name,
 						    const char *buffer,
 						    const jsmntok_t *tok,
-						    enum route_hop_style **style)
+						    int **unused)
 {
-	*style = tal(cmd, enum route_hop_style);
-	if (json_tok_streq(buffer, tok, "legacy")) {
-		**style = ROUTE_HOP_LEGACY;
-		return NULL;
-	} else if (json_tok_streq(buffer, tok, "tlv")) {
-		**style = ROUTE_HOP_TLV;
+	if (json_tok_streq(buffer, tok, "tlv")) {
 		return NULL;
 	}
 
+	/* We still let you *specify* this, but we ignore it! */
+	if (deprecated_apis && json_tok_streq(buffer, tok, "legacy"))
+		return NULL;
+
 	return command_fail_badparam(cmd, name, buffer, tok,
-			    "should be 'legacy' or 'tlv'");
+			    "should be 'tlv' ('legacy' not supported)");
 }
 
 static struct command_result *param_route_hops(struct command *cmd,
@@ -1366,7 +1372,7 @@ static struct command_result *param_route_hops(struct command *cmd,
 		unsigned *delay, *direction;
 		struct pubkey *blinding;
 		u8 *enctlv;
-		enum route_hop_style *style, default_style;
+		int *ignored;
 
 		if (!param(cmd, buffer, t,
 			   /* Only *one* of these is required */
@@ -1378,7 +1384,7 @@ static struct command_result *param_route_hops(struct command *cmd,
 			   p_opt("channel", param_short_channel_id, &channel),
 			   /* Allowed (getroute supplies it) but ignored */
 			   p_opt("direction", param_number, &direction),
-			   p_opt("style", param_route_hop_style, &style),
+			   p_opt("style", param_route_hop_style, &ignored),
 			   p_opt("blinding", param_pubkey, &blinding),
 			   p_opt("encrypted_recipient_data", param_bin_from_hex, &enctlv),
 			   NULL))
@@ -1405,21 +1411,12 @@ static struct command_result *param_route_hops(struct command *cmd,
 		if (!msat)
 			msat = amount_msat;
 
-		if (blinding || enctlv) {
-			if (style && *style == ROUTE_HOP_LEGACY)
-				return command_fail(cmd, JSONRPC2_INVALID_PARAMS,
-						    "%s[%zi]: Can't have blinding or enctlv with legacy", name, i);
-			default_style = ROUTE_HOP_TLV;
-		} else
-			default_style = ROUTE_HOP_LEGACY;
-
 		(*hops)[i].amount = *msat;
 		(*hops)[i].node_id = *id;
 		(*hops)[i].delay = *delay;
 		(*hops)[i].scid = *channel;
 		(*hops)[i].blinding = blinding;
 		(*hops)[i].enctlv = enctlv;
-		(*hops)[i].style = style ? *style : default_style;
 	}
 
 	return NULL;
@@ -1433,10 +1430,11 @@ static struct command_result *json_sendpay(struct command *cmd,
 	struct sha256 *rhash;
 	struct route_hop *route;
 	struct amount_msat *msat;
-	const char *invstring, *label;
+	const char *invstring, *label, *description;
 	u64 *partid, *group;
 	struct secret *payment_secret;
-	struct sha256 *local_offer_id = NULL;
+	struct sha256 *local_offer_id;
+	u8 *payment_metadata;
 
 	/* For generating help, give new-style. */
 	if (!param(cmd, buffer, params,
@@ -1450,6 +1448,8 @@ static struct command_result *json_sendpay(struct command *cmd,
 		   p_opt_def("partid", param_u64, &partid, 0),
 		   p_opt("localofferid", param_sha256, &local_offer_id),
 		   p_opt("groupid", param_u64, &group),
+		   p_opt("payment_metadata", param_bin_from_hex, &payment_metadata),
+		   p_opt("description", param_string, &description),
 		   NULL))
 		return command_param_failed();
 
@@ -1499,7 +1499,8 @@ static struct command_result *json_sendpay(struct command *cmd,
 			    route,
 			    final_amount,
 			    msat ? *msat : final_amount,
-			    label, invstring, local_offer_id, payment_secret);
+			    label, invstring, description, local_offer_id,
+			    payment_secret, payment_metadata);
 }
 
 static const struct json_command sendpay_command = {

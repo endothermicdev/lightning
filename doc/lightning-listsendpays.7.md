@@ -4,7 +4,7 @@ lightning-listsendpays -- Low-level command for querying sendpay status
 SYNOPSIS
 --------
 
-**listsendpays** \[*bolt11*\] \[*payment\_hash*\] \[*status*\]
+**listsendpays** [*bolt11*] [*payment\_hash*] [*status*]
 
 DESCRIPTION
 -----------
@@ -25,7 +25,7 @@ Note that the returned array is ordered by increasing *id*.
 [comment]: # (GENERATE-FROM-SCHEMA-START)
 On success, an object containing **payments** is returned.  It is an array of objects, where each object contains:
 - **id** (u64): unique ID for this payment attempt
-- **payment_hash** (hex): the hash of the *payment_preimage* which will prove payment (always 64 characters)
+- **payment_hash** (hash): the hash of the *payment_preimage* which will prove payment (always 64 characters)
 - **status** (string): status of the payment (one of "pending", "failed", "complete")
 - **created_at** (u64): the UNIX timestamp showing when this payment was initiated
 - **amount_sent_msat** (msat): The amount sent
@@ -34,10 +34,11 @@ On success, an object containing **payments** is returned.  It is an array of ob
 - **destination** (pubkey, optional): the final destination of the payment if known
 - **label** (string, optional): the label, if given to sendpay
 - **bolt11** (string, optional): the bolt11 string (if pay supplied one)
+- **description** (string, optional): the description matching the bolt11 description hash (if pay supplied one)
 - **bolt12** (string, optional): the bolt12 string (if supplied for pay: **experimental-offers** only).
 
 If **status** is "complete":
-  - **payment_preimage** (hex): the proof of payment: SHA256 of this **payment_hash** (always 64 characters)
+  - **payment_preimage** (secret): the proof of payment: SHA256 of this **payment_hash** (always 64 characters)
 
 If **status** is "failed":
   - **erroronion** (hex, optional): the onion message returned
@@ -60,4 +61,4 @@ RESOURCES
 
 Main web site: <https://github.com/ElementsProject/lightning>
 
-[comment]: # ( SHA256STAMP:1dfcb495e0004b9dadffd7f69b58275bf9168c9f4007675b390ebbaea07ffde6)
+[comment]: # ( SHA256STAMP:eaa0b4c6309d45bc2a72baf44288f1faa75d7f6ff2e8bf6d03be53747fe82c84)

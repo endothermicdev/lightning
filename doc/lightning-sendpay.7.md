@@ -4,8 +4,9 @@ lightning-sendpay -- Low-level command for sending a payment via a route
 SYNOPSIS
 --------
 
-**sendpay** *route* *payment\_hash* \[*label*\] \[*msatoshi*\]
-\[*bolt11*\] \[*payment_secret*\] \[*partid*\]
+**sendpay** *route* *payment\_hash* [*label*] [*msatoshi*]
+[*bolt11*] [*payment_secret*] [*partid*] [*localofferid*] [*groupid*]
+[*payment_metadata*] [*description*]
 
 DESCRIPTION
 -----------
@@ -44,6 +45,16 @@ partial payments with the same *payment_hash*.  The *msatoshi* amount
 *payment_hash* must be equal, and **sendpay** will fail if there are
 already *msatoshi* worth of payments pending.
 
+The *localofferid* value indicates that this payment is being made for a local
+send_invoice offer: this ensures that we only send a payment for a single-use
+offer once.
+
+*groupid* allows you to attach a number which appears in **listsendpays** so
+payments can be identified as part of a logical group.  The *pay* plugin uses
+this to identify one attempt at a MPP payment, for example.
+
+*payment_metadata* is placed in the final onion hop TLV.
+
 Once a payment has succeeded, calls to **sendpay** with the same
 *payment\_hash* but a different *msatoshi* or destination will fail;
 this prevents accidental multiple payments. Calls to **sendpay** with
@@ -57,7 +68,7 @@ RETURN VALUE
 [comment]: # (GENERATE-FROM-SCHEMA-START)
 On success, an object is returned, containing:
 - **id** (u64): unique ID for this payment attempt
-- **payment_hash** (hex): the hash of the *payment_preimage* which will prove payment (always 64 characters)
+- **payment_hash** (hash): the hash of the *payment_preimage* which will prove payment (always 64 characters)
 - **status** (string): status of the payment (could be complete if already sent previously) (one of "pending", "complete")
 - **created_at** (u64): the UNIX timestamp showing when this payment was initiated
 - **amount_sent_msat** (msat): The amount sent
@@ -70,7 +81,7 @@ On success, an object is returned, containing:
 - **bolt12** (string, optional): the bolt12 string (if supplied: **experimental-offers** only).
 
 If **status** is "complete":
-  - **payment_preimage** (hex): the proof of payment: SHA256 of this **payment_hash** (always 64 characters)
+  - **payment_preimage** (secret): the proof of payment: SHA256 of this **payment_hash** (always 64 characters)
 
 If **status** is "pending":
   - **message** (string): Monitor status with listpays or waitsendpay
@@ -94,6 +105,7 @@ The following error codes may occur:
     will be routing failure object.
 -   204: Failure along route; retry a different route. The *data* field
     of the error will be routing failure object.
+-   212: *localofferid* refers to an invalid, or used, local offer.
 
 A routing failure object has the fields below:
 -   *erring\_index*. The index of the node along the route that reported
@@ -127,4 +139,4 @@ RESOURCES
 
 Main web site: <https://github.com/ElementsProject/lightning>
 
-[comment]: # ( SHA256STAMP:44540ace609ccfa7b023526d7a92ba7cf4a6058f3ae2124c20fa65b92137e41b)
+[comment]: # ( SHA256STAMP:a7f55104f3bdb21057a410a33902b92aca38aaa83b1e0e7e6876a911316132ed)

@@ -38,9 +38,9 @@ Get dependencies:
     sudo apt-get update
     sudo apt-get install -y \
       autoconf automake build-essential git libtool libgmp-dev libsqlite3-dev \
-      python3 python3-mako python3-pip net-tools zlib1g-dev libsodium-dev \
-      gettext
-    pip3 install --user mrkd mistune==0.8.4
+      python3 python3-pip net-tools zlib1g-dev libsodium-dev gettext
+    pip3 install --upgrade pip
+    pip3 install --user poetry
 
 If you don't have Bitcoin installed locally you'll need to install that
 as well. It's now available via [snapd](https://snapcraft.io/bitcoin-core).
@@ -60,13 +60,16 @@ For development or running tests, get additional dependencies:
 
     sudo apt-get install -y valgrind libpq-dev shellcheck cppcheck \
       libsecp256k1-dev jq
-    pip3 install --upgrade pip
-    pip3 install --user -r requirements.txt
+
+If you want to build the Rust plugins (currently, cln-grpc):
+
+	sudo apt-get install -y cargo rustfmt
 
 Build lightning:
 
+    poetry install
     ./configure
-    make
+    poetry run make
     sudo make install
 
 Running lightning:
@@ -74,8 +77,6 @@ Running lightning:
     bitcoind &
     ./lightningd/lightningd &
     ./cli/lightning-cli help
-
-**Note**: You may need to include `testnet=1` in `bitcoin.conf`
 
 To Build on Fedora
 ---------------------
@@ -137,7 +138,7 @@ To Build on FreeBSD
 
 OS version: FreeBSD 11.1-RELEASE or above
 
-c-lightning is in the FreeBSD ports, so install it as any other port
+Core Lightning is in the FreeBSD ports, so install it as any other port
 (dependencies are handled automatically):
 
     # pkg install c-lightning
@@ -150,7 +151,8 @@ fiddle with compile time options:
 mrkd is required to build man pages from markdown files (not done by the port):
 
     # cd /usr/ports/devel/py-pip && make install
-    $ pip install --user mrkd
+    $ pip install --user poetry
+    $ poetry install
 
 See `/usr/ports/net-p2p/c-lightning/Makefile` for instructions on how to
 build from an arbitrary git commit, instead of the latest release tag.
@@ -183,8 +185,8 @@ pkg_add autoconf # (select highest version, autoconf-2.69p2 at time of writing)
 ```
 Install `mako` and `mrkd` otherwise we run into build errors:
 ```
-pip3.7 install --user mako
-pip3.7 install --user mrkd
+pip3.7 install --user poetry
+poetry install
 ```
 
 Add `/home/<username>/.local/bin` to your path:
@@ -241,6 +243,7 @@ If you need Python 3.x for mako (or get a mako build error):
     $ source ~/.bash_profile
     $ pyenv install 3.7.4
     $ pip install --upgrade pip
+    $ pip install poetry
 
 If you don't have bitcoind installed locally you'll need to install that
 as well:
@@ -257,16 +260,11 @@ Clone lightning:
     $ git clone https://github.com/ElementsProject/lightning.git
     $ cd lightning
 
-Configure Python 3.x & get mako:
-
-    $ pyenv local 3.7.4
-    $ pip install mako
-
 Build lightning:
 
-    $ pip install -r requirements.txt
+    $ poetry install
     $ ./configure
-    $ make
+    $ poetry run make
 
 Running lightning:
 
@@ -283,7 +281,7 @@ To cross-compile for Android
 
 Make a standalone toolchain as per
 https://developer.android.com/ndk/guides/standalone_toolchain.html.
-For c-lightning you must target an API level of 24 or higher.
+For Core Lightning you must target an API level of 24 or higher.
 
 Depending on your toolchain location and target arch, source env variables
 such as:
@@ -343,9 +341,9 @@ Obtain and install cross-compiled versions of sqlite3, gmp and zlib:
 
 Download and build zlib:
 
-    wget https://zlib.net/zlib-1.2.11.tar.gz
-    tar xvf zlib-1.2.11.tar.gz
-    cd zlib-1.2.11
+    wget https://zlib.net/zlib-1.2.12.tar.gz
+    tar xvf zlib-1.2.12.tar.gz
+    cd zlib-1.2.12
     ./configure --prefix=$QEMU_LD_PREFIX
     make
     make install
@@ -368,7 +366,7 @@ Download and build gmp:
     make
     make install
 
-Then, build c-lightning with the following commands:
+Then, build Core Lightning with the following commands:
 
     ./configure
     make
@@ -379,7 +377,7 @@ For all the other Pi devices out there, consider using [Armbian](https://www.arm
 
 You can compile in `customize-image.sh` using the instructions for Ubuntu.
 
-A working example that compiles both bitcoind and c-lightning for Armbian can
+A working example that compiles both bitcoind and Core Lightning for Armbian can
 be found [here](https://github.com/Sjors/armbian-bitcoin-core).
 
 To compile for Alpine

@@ -16,10 +16,7 @@ struct legacy_payload {
 /* struct holding the information necessary to call createonion */
 struct createonion_hop {
 	struct node_id pubkey;
-
-	enum route_hop_style style;
 	struct tlv_tlv_payload *tlv_payload;
-	struct legacy_payload *legacy_payload;
 };
 
 struct createonion_request {
@@ -160,11 +157,12 @@ struct payment_constraints {
 };
 
 struct payment {
+	/* Usually in global payments list */
+	struct list_node list;
 	/* The command that triggered this payment. Only set for the root
 	 * payment. */
 	struct command *cmd;
 	struct plugin *plugin;
-	struct list_node list;
 	struct node_id *local_id;
 
 	const char *json_buffer;
@@ -175,14 +173,15 @@ struct payment {
 
 	/* Real destination we want to route to */
 	struct node_id *destination;
-	/* Do we know for sure that this supports OPT_VAR_ONION? */
-	bool destination_has_tlv;
 
 	/* Payment hash extracted from the invoice if any. */
 	struct sha256 *payment_hash;
 
 	/* Payment secret, from the invoice if any. */
 	struct secret *payment_secret;
+
+	/* Payment metadata, from the invoice if any. */
+	u8 *payment_metadata;
 
 	u64 groupid;
 	u32 partid;
@@ -256,9 +255,16 @@ struct payment {
 	 * true. Set only on the root payment. */
 	bool abort;
 
+	/* We only set invstring/description on one of our sendpays per group,
+	 * so we track when we've done that. */
+	bool invstring_used;
+
 	/* Serialized bolt11/12 string, kept attachd to the root so we can filter
 	 * by the invoice. */
 	const char *invstring;
+
+	/* Description, usually set if bolt11 has only description_hash */
+	const char *description;
 
 	/* If this is paying a local offer, this is the one (sendpay ensures we
 	 * don't pay twice for single-use offers) */

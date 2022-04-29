@@ -42,10 +42,17 @@ struct daemon {
 	u8 rgb[3];
 
 	/* What addresses we can actually announce. */
-	struct wireaddr *announcable;
+	struct wireaddr *announceable;
 
-	/* Timer until we can send a new node_announcement */
+	/* verified remote_addr as reported by recent peers */
+	struct wireaddr *remote_addr_v4;
+	struct wireaddr *remote_addr_v6;
+
+	/* Timer until we can send an updated node_announcement */
 	struct oneshot *node_announce_timer;
+
+	/* Timer until we should force a new new node_announcement */
+	struct oneshot *node_announce_regen_timer;
 
 	/* Channels we have an announce for, but aren't deep enough. */
 	struct short_channel_id *deferred_txouts;

@@ -45,6 +45,11 @@ def test_gossip_pruning(node_factory, bitcoind):
     wait_for(lambda: [c['active'] for c in l2.rpc.listchannels()['channels']] == [True] * 4)
     wait_for(lambda: [c['active'] for c in l3.rpc.listchannels()['channels']] == [True] * 4)
 
+    # Also check that it sends a redundant node_announcement.
+    ts1 = only_one(l2.rpc.listnodes(l1.info['id'])['nodes'])['last_timestamp']
+    wait_for(lambda: only_one(l2.rpc.listnodes(l1.info['id'])['nodes'])['last_timestamp'] != ts1)
+    assert only_one(l2.rpc.listnodes(l1.info['id'])['nodes'])['last_timestamp'] >= ts1 + 24
+
     # All of them should send a keepalive message (after 30 seconds)
     l1.daemon.wait_for_logs([
         'Sending keepalive channel_update for {}'.format(scid1),
@@ -1066,7 +1071,7 @@ def test_gossip_addresses(node_factory, bitcoind):
 @pytest.mark.openchannel('v2')
 def test_gossip_lease_rates(node_factory, bitcoind):
     lease_opts = {'lease-fee-basis': 50,
-                  'lease-fee-base-msat': '2000msat',
+                  'lease-fee-base-sat': '2000msat',
                   'channel-fee-max-base-msat': '500sat',
                   'channel-fee-max-proportional-thousandths': 200}
     l1, l2 = node_factory.get_nodes(2, opts=[lease_opts, {}])
@@ -1583,7 +1588,7 @@ def setup_gossip_store_test(node_factory, bitcoind):
     wait_for(lambda: ['alias' in n for n in l2.rpc.listnodes()['nodes']] == [True, True])
 
     # Now, replace the one channel_update, so it's past the node announcements.
-    l2.rpc.setchannelfee(l3.info['id'], 20, 1000)
+    l2.rpc.setchannel(l3.info['id'], 20, 1000)
     # Old base feerate is 1.
     wait_for(lambda: sum([c['base_fee_millisatoshi'] for c in l2.rpc.listchannels()['channels']]) == 21)
 
@@ -1592,12 +1597,12 @@ def setup_gossip_store_test(node_factory, bitcoind):
 
     # Now insert channel_update for previous channel; now they're both past the
     # node announcements.
-    l3.rpc.setchannelfee(l2.info['id'], 20, 1000)
+    l3.rpc.setchannel(l2.info['id'], feebase=20, feeppm=1000)
     wait_for(lambda: [c['base_fee_millisatoshi'] for c in l2.rpc.listchannels(scid23)['channels']] == [20, 20])
 
     # Replace both (private) updates for scid12.
-    l1.rpc.setchannelfee(l2.info['id'], 20, 1000)
-    l2.rpc.setchannelfee(l1.info['id'], 20, 1000)
+    l1.rpc.setchannel(l2.info['id'], feebase=20, feeppm=1000)
+    l2.rpc.setchannel(l1.info['id'], feebase=20, feeppm=1000)
     wait_for(lambda: [c['base_fee_millisatoshi'] for c in l2.rpc.listchannels(scid12)['channels']] == [20, 20])
 
     # Records in store now looks (something) like:
@@ -1933,11 +1938,13 @@ def test_statictor_onions(node_factory):
     })
     l2 = node_factory.get_node(may_fail=True, options={
         'bind-addr': '127.0.0.1:{}'.format(portB),
-        'addr': ['statictor:{}/torblob=11234567890123456789012345678901'.format(torips)]
+        'addr': ['statictor:{}/torblob=11234567890123456789012345678901/torport={}'.format(torips, 9736)]
     })
 
     assert l1.daemon.is_in_log('127.0.0.1:{}'.format(l1.port))
-    assert l2.daemon.is_in_log('x2y4zvh4fn5q3eouuh7nxnc7zeawrqoutljrup2xjtiyxgx3emgkemad.onion:{},127.0.0.1:{}'.format(l2.port, l2.port))
+    # Did not specify torport, so it's the default.
+    assert l1.daemon.is_in_log('.onion:{}'.format(9735))
+    assert l2.daemon.is_in_log('x2y4zvh4fn5q3eouuh7nxnc7zeawrqoutljrup2xjtiyxgx3emgkemad.onion:{},127.0.0.1:{}'.format(9736, l2.port))
 
 
 @pytest.mark.developer("needs a running Tor service instance at port 9151 or 9051")

@@ -459,62 +459,62 @@ int main(int argc, char *argv[])
 	tlv3_node_id.amount_msat_2 = AMOUNT_MSAT(2);
 
 	for (size_t i = 0; i < ARRAY_SIZE(invalid_streams_either); i++) {
-		struct tlv_n1 *tlv_n1 = tlv_n1_new(tmpctx);
-		struct tlv_n2 *tlv_n2 = tlv_n2_new(tmpctx);
+		struct tlv_n1 *tlv_n1;
+		struct tlv_n2 *tlv_n2;
 		const u8 *p, *orig_p;
 		size_t max;
 
 		orig_p = stream(tmpctx, invalid_streams_either[i].hex);
 		max = tal_count(orig_p);
 		p = orig_p;
-		assert((!fromwire_n1(&p, &max, tlv_n1) && !p) ||
-		       !n1_is_valid(tlv_n1, NULL));
+		tlv_n1 = fromwire_tlv_n1(tmpctx, &p, &max);
+		assert(!tlv_n1 && !p);
 		assert(strstr(invalid_streams_either[i].reason, reason));
 		max = tal_count(orig_p);
 		p = orig_p;
-		assert((!fromwire_n2(&p, &max, tlv_n2) && !p) ||
-		       !n2_is_valid(tlv_n2, NULL));
+		tlv_n2 = fromwire_tlv_n2(tmpctx, &p, &max);
+		assert(!tlv_n2 && !p);
 		assert(strstr(invalid_streams_either[i].reason, reason));
 	}
 
 	for (size_t i = 0; i < ARRAY_SIZE(invalid_streams_n1); i++) {
-		struct tlv_n1 *tlv_n1 = tlv_n1_new(tmpctx);
+		struct tlv_n1 *tlv_n1;
 		const u8 *p;
 		size_t max;
 
 		p = stream(tmpctx, invalid_streams_n1[i].hex);
 		max = tal_count(p);
-		assert((!fromwire_n1(&p, &max, tlv_n1) && !p) ||
-		       !n1_is_valid(tlv_n1, NULL));
+		tlv_n1 = fromwire_tlv_n1(tmpctx, &p, &max);
+		assert(!tlv_n1 && !p);
 		assert(strstr(invalid_streams_n1[i].reason, reason));
 	}
 
 	for (size_t i = 0; i < ARRAY_SIZE(invalid_streams_n1_combo); i++) {
-		struct tlv_n1 *tlv_n1 = tlv_n1_new(tmpctx);
+		struct tlv_n1 *tlv_n1;
 		const u8 *p;
 		size_t max;
 
 		p = stream(tmpctx, invalid_streams_n1_combo[i].hex);
 		max = tal_count(p);
-		assert((!fromwire_n1(&p, &max, tlv_n1) && !p) ||
-		       !n1_is_valid(tlv_n1, NULL));
+		tlv_n1 = fromwire_tlv_n1(tmpctx, &p, &max);
+		assert(!tlv_n1 && !p);
 		assert(strstr(invalid_streams_n1_combo[i].reason, reason));
 	}
 
 	for (size_t i = 0; i < ARRAY_SIZE(invalid_streams_n2_combo); i++) {
-		struct tlv_n2 *tlv_n2 = tlv_n2_new(tmpctx);
+		struct tlv_n2 *tlv_n2;
 		const u8 *p;
 		size_t max;
 
 		p = stream(tmpctx, invalid_streams_n2_combo[i].hex);
 		max = tal_count(p);
-		assert((!fromwire_n2(&p, &max, tlv_n2) && !p) ||
-		       !n2_is_valid(tlv_n2, NULL));
+		tlv_n2 = fromwire_tlv_n2(tmpctx, &p, &max);
+		assert(!tlv_n2 && !p);
 		assert(strstr(invalid_streams_n2_combo[i].reason, reason));
 	}
 
 	for (size_t i = 0; i < ARRAY_SIZE(valid_streams); i++) {
- 		struct tlv_n1 *tlv_n1 = tlv_n1_new(tmpctx);
+ 		struct tlv_n1 *tlv_n1;
 		const u8 *orig_p, *p;
 		u8 *p2;
 		size_t max;
@@ -523,8 +523,8 @@ int main(int argc, char *argv[])
 
 		max = tal_count(orig_p);
 		p = orig_p;
-		assert(fromwire_n1(&p, &max, tlv_n1) &&
-		       n1_is_valid(tlv_n1, NULL));
+		tlv_n1 = fromwire_tlv_n1(tmpctx, &p, &max);
+		assert(tlv_n1);
 		assert(max == 0);
 		assert(tlv_n1_eq(tlv_n1, &valid_streams[i].expect));
 
@@ -534,7 +534,7 @@ int main(int argc, char *argv[])
 			continue;
 
 		p2 = tal_arr(tmpctx, u8, 0);
-		towire_n1(&p2, tlv_n1);
+		towire_tlv_n1(&p2, tlv_n1);
 		assert(memeq(p2, tal_count(p2), orig_p, tal_count(orig_p)));
 	}
 
@@ -545,8 +545,8 @@ int main(int argc, char *argv[])
 	 */
 	for (size_t i = 0; i < ARRAY_SIZE(invalid_streams_either); i++) {
 		for (size_t j = 0; j < ARRAY_SIZE(valid_streams); j++) {
-			struct tlv_n1 *tlv_n1 = tlv_n1_new(tmpctx);
-			struct tlv_n2 *tlv_n2 = tlv_n2_new(tmpctx);
+			struct tlv_n1 *tlv_n1;
+			struct tlv_n2 *tlv_n2;
 			const u8 *orig_p, *p;
 			size_t max;
 
@@ -555,40 +555,40 @@ int main(int argc, char *argv[])
 					 invalid_streams_either[i].hex);
 			max = tal_count(orig_p);
 			p = orig_p;
-			assert((!fromwire_n1(&p, &max, tlv_n1) && !p) ||
-			       !n1_is_valid(tlv_n1, NULL));
+			tlv_n1 = fromwire_tlv_n1(tmpctx, &p, &max);
+			assert(!tlv_n1 && !p);
 			max = tal_count(orig_p);
 			p = orig_p;
-			assert((!fromwire_n2(&p, &max, tlv_n2) && !p) ||
-			       !n2_is_valid(tlv_n2, NULL));
+			tlv_n2 = fromwire_tlv_n2(tmpctx, &p, &max);
+			assert(!tlv_n2 && !p);
 		}
 	}
 
 	for (size_t i = 0; i < ARRAY_SIZE(invalid_streams_n1); i++) {
 		for (size_t j = 0; j < ARRAY_SIZE(valid_streams); j++) {
-			struct tlv_n1 *tlv_n1 = tlv_n1_new(tmpctx);
+			struct tlv_n1 *tlv_n1;
 			const u8 *p;
 			size_t max;
 
 			p = stream2(tmpctx, valid_streams[j].hex,
 				    invalid_streams_n1[i].hex);
 			max = tal_count(p);
-			assert((!fromwire_n1(&p, &max, tlv_n1) && !p) ||
-			       !n1_is_valid(tlv_n1, NULL));
+			tlv_n1 = fromwire_tlv_n1(tmpctx, &p, &max);
+			assert(!tlv_n1 && !p);
 		}
 	}
 
 	for (size_t i = 0; i < ARRAY_SIZE(invalid_streams_n1_combo); i++) {
 		for (size_t j = 0; j < ARRAY_SIZE(valid_streams); j++) {
-			struct tlv_n1 *tlv_n1 = tlv_n1_new(tmpctx);
+			struct tlv_n1 *tlv_n1;
 			const u8 *p;
 			size_t max;
 
 			p = stream2(tmpctx, valid_streams[j].hex,
 				    invalid_streams_n1_combo[i].hex);
 			max = tal_count(p);
-			assert((!fromwire_n1(&p, &max, tlv_n1) && !p) ||
-			       !n1_is_valid(tlv_n1, NULL));
+			tlv_n1 = fromwire_tlv_n1(tmpctx, &p, &max);
+			assert(!tlv_n1 && !p);
 		}
 	}
 
@@ -599,7 +599,7 @@ int main(int argc, char *argv[])
 	 */
 	for (size_t i = 0; i < ARRAY_SIZE(valid_streams); i++) {
 		for (size_t j = i+1; j < ARRAY_SIZE(valid_streams); j++) {
-			struct tlv_n1 *tlv_n1 = tlv_n1_new(tmpctx);
+			struct tlv_n1 *tlv_n1;
 			const u8 *orig_p, *p;
 			size_t max;
 			bool expect_success;
@@ -617,11 +617,13 @@ int main(int argc, char *argv[])
 			expect_success = pull_type(valid_streams[i].hex)
 				< pull_type(valid_streams[j].hex);
 
-			assert(fromwire_n1(&p, &max, tlv_n1) &&
-			       n1_is_valid(tlv_n1, NULL) == expect_success);
-
-			if (!expect_success)
+			tlv_n1 = fromwire_tlv_n1(tmpctx, &p, &max);
+			if (!expect_success) {
+				assert(!tlv_n1);
 				continue;
+			}
+
+			assert(tlv_n1);
 
 			/* Re-encoding should give the same results (except
 			 * ignored fields tests!) */
@@ -630,7 +632,7 @@ int main(int argc, char *argv[])
 				continue;
 
 			u8 *p2 = tal_arr(tmpctx, u8, 0);
-			towire_n1(&p2, tlv_n1);
+			towire_tlv_n1(&p2, tlv_n1);
 			assert(memeq(orig_p, tal_count(orig_p),
 				     p2, tal_count(p2)));
 		}

@@ -11,6 +11,7 @@
 #include <common/memleak.h>
 #include <common/overflows.h>
 #include <common/peer_billboard.h>
+#include <common/psbt_keypath.h>
 #include <common/status.h>
 #include <common/subdaemon.h>
 #include <common/type_to_string.h>
@@ -18,6 +19,7 @@
 #include <onchaind/onchain_types.h>
 #include <onchaind/onchaind_wiregen.h>
 #include <unistd.h>
+#include <wally_bip32.h>
 #include <wire/wire_sync.h>
   #include "onchain_types_names_gen.h"
 
@@ -53,6 +55,8 @@ static struct amount_sat dust_limit;
 static u32 to_self_delay[NUM_SIDES];
 
 /* Where we send money to (our wallet) */
+static u32 our_wallet_index;
+static struct ext_key our_wallet_ext_key;
 static struct pubkey our_wallet_pubkey;
 
 /* Their revocation secret (only if they cheated). */
@@ -247,6 +251,31 @@ static void record_external_deposit(const struct tracked_output *out,
 	record_external_output(&out->outpoint, out->sat, blockheight, tag);
 }
 
+static void record_mutual_close(const struct tx_parts *tx,
+				const u8 *remote_scriptpubkey,
+				u32 blockheight)
+{
+	/* FIXME: if we ever change how closes happen, this will
+	 * need to be updated as there's no longer 1 output
+	 * per peer */
+	for (size_t i = 0; i < tal_count(tx->outputs); i++) {
+		struct bitcoin_outpoint out;
+
+		if (!wally_tx_output_scripteq(tx->outputs[i],
+					      remote_scriptpubkey))
+			continue;
+
+		out.n = i;
+		out.txid = tx->txid;
+		record_external_output(&out,
+				       amount_sat(tx->outputs[i]->satoshi),
+				       blockheight,
+				       TO_THEM);
+		break;
+	}
+}
+
+
 static void record_channel_deposit(struct tracked_output *out,
 				   u32 blockheight, enum mvt_tag tag)
 {
@@ -381,16 +410,16 @@ static bool grind_htlc_tx_fee(struct amount_sat *fee,
 		 *
 		 * The fee for an HTLC-timeout transaction:
 		 *   - If `option_anchors_zero_fee_htlc_tx` applies:
-		 *     1. MUST BE 0.
-		 *   - Otherwise, MUST BE calculated to match:
+		 *     1. MUST be 0.
+		 *   - Otherwise, MUST be calculated to match:
 		 *     1. Multiply `feerate_per_kw` by 663
 		 *        (666 if `option_anchor_outputs` applies)
 		 *        and divide by 1000 (rounding down).
 		 *
 		 * The fee for an HTLC-success transaction:
 		 *  - If `option_anchors_zero_fee_htlc_tx` applies:
-		 *    1. MUST BE 0.
-		 *  - MUST BE calculated to match:
+		 *    1. MUST be 0.
+		 *  - Otherwise, MUST be calculated to match:
 		 *     1. Multiply `feerate_per_kw` by 703
 		 *        (706 if `option_anchor_outputs` applies)
 		 *        and divide by 1000 (rounding down).
@@ -432,8 +461,8 @@ static bool set_htlc_timeout_fee(struct bitcoin_tx *tx,
 	 *
 	 * The fee for an HTLC-timeout transaction:
 	 *  - If `option_anchors_zero_fee_htlc_tx` applies:
-	 *    1. MUST BE 0.
-	 *  - Otherwise, MUST BE calculated to match:
+	 *    1. MUST be 0.
+	 *  - Otherwise, MUST be calculated to match:
 	 *    1. Multiply `feerate_per_kw` by 663 (666 if `option_anchor_outputs`
 	 *       applies) and divide by 1000 (rounding down).
 	 */
@@ -480,8 +509,8 @@ static void set_htlc_success_fee(struct bitcoin_tx *tx,
 	 *
 	 * The fee for an HTLC-success transaction:
 	 * - If `option_anchors_zero_fee_htlc_tx` applies:
-	 *   1. MUST BE 0.
-	 * - MUST BE calculated to match:
+	 *   1. MUST be 0.
+	 * - Otherwise, MUST be calculated to match:
 	 *   1. Multiply `feerate_per_kw` by 703 (706 if `option_anchor_outputs`
 	 *      applies) and divide by 1000 (rounding down).
 	 */
@@ -592,7 +621,8 @@ static struct bitcoin_tx *tx_to_us(const tal_t *ctx,
 			     NULL, out->sat, NULL, wscript);
 
 	bitcoin_tx_add_output(
-	    tx, scriptpubkey_p2wpkh(tx, &our_wallet_pubkey), NULL, out->sat);
+	    tx, scriptpubkey_p2wpkh(tmpctx, &our_wallet_pubkey), NULL, out->sat);
+	psbt_add_keypath_to_last_output(tx, our_wallet_index, &our_wallet_ext_key);
 
 	/* Worst-case sig is 73 bytes */
 	weight = bitcoin_tx_weight(tx) + 1 + 3 + 73 + 0 + tal_count(wscript);
@@ -713,13 +743,14 @@ replace_penalty_tx_to_us(const tal_t *ctx,
 			     BITCOIN_TX_RBF_SEQUENCE,
 			     NULL, input_amount, NULL, input_wscript);
 	/* Reconstruct the output with a smaller amount.  */
-	if (amount_sat_greater(*output_amount, dust_limit))
+	if (amount_sat_greater(*output_amount, dust_limit)) {
 		bitcoin_tx_add_output(tx,
 				      scriptpubkey_p2wpkh(tx,
 							  &our_wallet_pubkey),
 				      NULL,
 				      *output_amount);
-	else {
+		psbt_add_keypath_to_last_output(tx, our_wallet_index, &our_wallet_ext_key);
+	} else {
 		bitcoin_tx_add_output(tx,
 				      scriptpubkey_opreturn_padded(tx),
 				      NULL,
@@ -2095,26 +2126,32 @@ static void wait_for_resolved(struct tracked_output **outs)
 			take(towire_onchaind_all_irrevocably_resolved(outs)));
 }
 
-static int cmp_htlc_cltv(const struct htlc_stub *a,
-			 const struct htlc_stub *b, void *unused)
-{
-	if (a->cltv_expiry < b->cltv_expiry)
-		return -1;
-	else if (a->cltv_expiry > b->cltv_expiry)
-		return 1;
-	return 0;
-}
-
 struct htlcs_info {
 	struct htlc_stub *htlcs;
 	bool *tell_if_missing;
 	bool *tell_immediately;
 };
 
+struct htlc_with_tells {
+	struct htlc_stub htlc;
+	bool tell_if_missing, tell_immediately;
+};
+
+static int cmp_htlc_with_tells_cltv(const struct htlc_with_tells *a,
+				    const struct htlc_with_tells *b, void *unused)
+{
+	if (a->htlc.cltv_expiry < b->htlc.cltv_expiry)
+		return -1;
+	else if (a->htlc.cltv_expiry > b->htlc.cltv_expiry)
+		return 1;
+	return 0;
+}
+
 static struct htlcs_info *init_reply(const tal_t *ctx, const char *what)
 {
 	struct htlcs_info *htlcs_info = tal(ctx, struct htlcs_info);
 	u8 *msg;
+	struct htlc_with_tells *htlcs;
 
 	/* commit_num is 0 for mutual close, but we don't care about HTLCs
 	 * then anyway. */
@@ -2128,7 +2165,7 @@ static struct htlcs_info *init_reply(const tal_t *ctx, const char *what)
 	/* Read in htlcs */
 	for (;;) {
 		msg = wire_sync_read(queued_msgs, REQ_FD);
-		if (fromwire_onchaind_htlcs(htlcs_info, msg,
+		if (fromwire_onchaind_htlcs(tmpctx, msg,
 					    &htlcs_info->htlcs,
 					    &htlcs_info->tell_if_missing,
 					    &htlcs_info->tell_immediately)) {
@@ -2140,14 +2177,26 @@ static struct htlcs_info *init_reply(const tal_t *ctx, const char *what)
 		tal_arr_expand(&queued_msgs, msg);
 	}
 
-	/* We want htlcs to be a valid tal parent, so make it a zero-length
-	 * array if NULL (fromwire makes it NULL if there are no entries) */
-	if (!htlcs_info->htlcs)
-		htlcs_info->htlcs = tal_arr(htlcs_info, struct htlc_stub, 0);
+	/* One convenient structure, so we sort them together! */
+	htlcs = tal_arr(tmpctx, struct htlc_with_tells, tal_count(htlcs_info->htlcs));
+	for (size_t i = 0; i < tal_count(htlcs); i++) {
+		htlcs[i].htlc = htlcs_info->htlcs[i];
+		htlcs[i].tell_if_missing = htlcs_info->tell_if_missing[i];
+		htlcs[i].tell_immediately = htlcs_info->tell_immediately[i];
+	}
 
 	/* Sort by CLTV, so matches are in CLTV order (and easy to skip dups) */
-	asort(htlcs_info->htlcs, tal_count(htlcs_info->htlcs),
-	      cmp_htlc_cltv, NULL);
+	asort(htlcs, tal_count(htlcs), cmp_htlc_with_tells_cltv, NULL);
+
+	/* Now put them back (prev were allocated off tmpctx) */
+	htlcs_info->htlcs = tal_arr(htlcs_info, struct htlc_stub, tal_count(htlcs));
+	htlcs_info->tell_if_missing = tal_arr(htlcs_info, bool, tal_count(htlcs));
+	htlcs_info->tell_immediately = tal_arr(htlcs_info, bool, tal_count(htlcs));
+	for (size_t i = 0; i < tal_count(htlcs); i++) {
+		htlcs_info->htlcs[i] = htlcs[i].htlc;
+		htlcs_info->tell_if_missing[i] = htlcs[i].tell_if_missing;
+		htlcs_info->tell_immediately[i] = htlcs[i].tell_immediately;
+	}
 
 	return htlcs_info;
 }
@@ -3820,6 +3869,8 @@ int main(int argc, char *argv[])
 				   &our_broadcast_txid,
 				   &scriptpubkey[LOCAL],
 				   &scriptpubkey[REMOTE],
+				   &our_wallet_index,
+				   &our_wallet_ext_key,
 				   &our_wallet_pubkey,
 				   &opener,
 				   &basepoints[LOCAL],
@@ -3860,7 +3911,8 @@ int main(int argc, char *argv[])
 	send_coin_mvt(take(new_coin_channel_close(NULL, &tx->txid,
 						  &funding, tx_blockheight,
 						  our_msat,
-						  funding_sats)));
+						  funding_sats,
+						  tal_count(tx->outputs))));
 
 	status_debug("Remote per-commit point: %s",
 		     type_to_string(tmpctx, struct pubkey,
@@ -3881,9 +3933,11 @@ int main(int argc, char *argv[])
 	 * without any pending payments) and publish it on the blockchain (see
 	 * [BOLT #2: Channel Close](02-peer-protocol.md#channel-close)).
 	 */
-	if (is_mutual_close(tx, scriptpubkey[LOCAL], scriptpubkey[REMOTE]))
+	if (is_mutual_close(tx, scriptpubkey[LOCAL], scriptpubkey[REMOTE])) {
+		record_mutual_close(tx, scriptpubkey[REMOTE],
+				    tx_blockheight);
 		handle_mutual_close(outs, tx);
-	else {
+	} else {
 		/* BOLT #5:
 		 *
 		 * 2. The bad way (*unilateral close*): something goes wrong,

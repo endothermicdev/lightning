@@ -28,7 +28,7 @@
             "description": "Grouping key to disambiguate multiple attempts to pay an invoice or the same payment_hash"
           },
           "payment_hash": {
-            "type": "hex",
+            "type": "hash",
             "description": "the hash of the *payment_preimage* which will prove payment",
             "maxLength": 64,
             "minLength": 64
@@ -72,6 +72,10 @@
             "type": "string",
             "description": "the bolt11 string (if pay supplied one)"
           },
+          "description": {
+            "type": "string",
+            "description": "the description matching the bolt11 description hash (if pay supplied one)"
+          },
           "bolt12": {
             "type": "string",
             "description": "the bolt12 string (if supplied for pay: **experimental-offers** only)."
@@ -108,9 +112,10 @@
                 "amount_sent_msat": {},
                 "label": {},
                 "bolt11": {},
+                "description": {},
                 "bolt12": {},
                 "payment_preimage": {
-                  "type": "hex",
+                  "type": "secret",
                   "description": "the proof of payment: SHA256 of this **payment_hash**",
                   "maxLength": 64,
                   "minLength": 64
@@ -146,6 +151,7 @@
                 "amount_sent_msat": {},
                 "label": {},
                 "bolt11": {},
+                "description": {},
                 "bolt12": {},
                 "erroronion": {
                   "type": "hex",
@@ -182,6 +188,7 @@
                 "amount_sent_msat": {},
                 "label": {},
                 "bolt11": {},
+                "description": {},
                 "bolt12": {}
               }
             }
