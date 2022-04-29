@@ -13,8 +13,8 @@ void init_minisketch(struct routing_state *rstate);
 void destroy_minisketch(struct routing_state *rstate);
 struct chan *node_least_channel(struct node *node);
 u64 minisketch_encode(u8 type,
-                  struct short_channel_id short_channel_id, u8 side,
-                  u32 timestamp);
+                      struct short_channel_id short_channel_id, u8 side,
+                      u32 timestamp);
 u64 minisketch_encode_cupdate(struct chan *chan, u8 side,u32 timestamp);
 u64 minisketch_encode_cannounce(struct chan *chan);
 u64 minisketch_encode_nannounce(struct chan *chan,u32 timestamp, u8 side);
@@ -62,9 +62,10 @@ static inline void destroy_minisketch(struct routing_state *rstate)
 static inline struct chan *node_least_channel(struct node *node)
 {
 }
-static inline u64 minisketch_implementation(const minisketch* sketch) {sketch_encode(u8 type,
-                  struct short_channel_id short_channel_id, u8 side,
-                  u32 timestamp)
+static inline u64 minisketch_encode(u8 type,
+                                    struct short_channel_id short_channel_id,
+                                    u8 side,
+                                    u32 timestamp)
 {
         return NULL;
 }
