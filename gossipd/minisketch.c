@@ -514,4 +514,94 @@ bool minisketch_decode_nannounce(u64 ms_entry,
         *timestamp = pull_bits(&ms_entry, &bitoff, 12);
         return status;
 }
+#else
+void init_minisketch(struct routing_state *rstate)
+{
+}
+
+void destroy_minisketch(struct routing_state *rstate)
+{
+}
+
+struct chan *node_least_channel(struct node *node)
+{
+        return NULL;
+}
+void init_minisketch_channels(struct chan *chan)
+{
+}
+void init_minisketch_node(struct node *node)
+{
+}
+u64 minisketch_encode(u8 type,
+                                    struct short_channel_id short_channel_id,
+                                    u8 side,
+                                    u32 timestamp)
+{
+        return 0;
+}
+u64 minisketch_encode_cupdate(struct chan *chan, u8 side,
+                                            u32 timestamp)
+{
+        return 0;
+}
+u64 minisketch_encode_cannounce(struct chan *chan)
+{
+        return 0;
+}
+u64 minisketch_encode_nannounce(struct chan *chan,u32 timestamp, u8 side)
+{
+        return 0;
+}
+u8 minisketch_decode_type(u64 minisketch_entry)
+{
+        return 255;
+}
+bool minisketch_add_to_sketch(struct routing_state *rstate,
+                                            u64 minisketch_entry)
+{
+        return NULL;
+}
+bool minisketch_sub_from_sketch(struct routing_state *rstate,
+                                              u64 minisketch_entry)
+{
+        return false;
+}
+bool minisketch_add_cannounce(struct routing_state *rstate,
+                                            struct chan *chan)
+{
+        return false;
+}
+void entry_decode(u64 ms_entry){
+}
+bool minisketch_handle_cannounce(struct routing_state *rstate,
+                                               struct chan *chan,
+                                               u32 timestamp){
+        return false;
+}
+bool minisketch_handle_cupdate(struct routing_state *rstate,
+                                             struct chan *chan,
+                                             u8 side,
+                                             u32 timestamp)
+{
+        return false;
+}
+bool minisketch_handle_nannounce(struct routing_state *rstate,
+                                               const struct node_id *node_id,
+                                               u32 timestamp)
+{
+        return false;
+}
+bool minisketch_decode_cupdate(u64 ms_entry,
+                               struct short_channel_id *scid,
+                               u8 *side,
+                               u32 *timestamp){
+        return NULL;
+}
+bool minisketch_decode_nannounce(u64 ms_entry,
+                               struct short_channel_id *scid,
+                               u8 *side,
+                               u32 *timestamp){
+        return NULL;
+}
 #endif /* EXPERIMENTAL_FEATURES */
