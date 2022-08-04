@@ -365,6 +365,116 @@ static struct command_result *json_state_changed(struct command *cmd,
 	return notification_handled(cmd);
 }
 
+
+
+static struct command_result *after_datastore(struct command *cmd,
+                                             const char *buf,
+                                             const jsmntok_t *params,
+                                             void *cb_arg UNUSED)
+{
+        return command_hook_success(cmd);
+}
+
+static struct command_result *failed_peer_restore(struct command *cmd,
+						  struct node_id *node_id,
+						  char *reason)
+{
+	plugin_log(cmd->plugin, LOG_DBG, "PeerStorageFailed!: %s: %s",
+		   type_to_string(tmpctx, struct node_id, node_id),
+		   reason);
+	return command_hook_success(cmd);
+}
+
+static struct command_result *handle_your_peer_storage(struct command *cmd,
+					         const char *buf,
+					         const jsmntok_t *params)
+{
+        const jsmntok_t *nodeidtok, *payloadtok;
+        struct node_id *node_id = tal(cmd, struct node_id);
+        u8 *payload, *payload_deserialise;
+        struct out_req *req;
+
+        nodeidtok = json_get_member(buf, params, "peer_id");
+        payloadtok = json_get_member(buf, params, "payload");
+        json_to_node_id(buf, nodeidtok, node_id);
+
+        payload = tal_hexdata(cmd,
+                              json_strdup(tmpctx, buf, payloadtok),
+                              payloadtok->end - payloadtok->start);
+
+	if (fromwire_peer_storage(cmd, payload, &payload_deserialise)) {
+		req = jsonrpc_request_start(cmd->plugin,
+                                    cmd,
+                                    "datastore",
+                                    after_datastore,
+                                    &forward_error,
+                                    NULL);
+
+		json_array_start(req->js, "key");
+		json_add_node_id(req->js, NULL, node_id);
+		json_add_string(req->js, NULL, "chanbackup");
+		json_array_end(req->js);
+		json_add_hex(req->js, "hex", payload_deserialise,
+			tal_bytelen(payload_deserialise));
+		json_add_string(req->js, "mode", "create-or-replace");
+
+		return send_outreq(cmd->plugin, req);
+	} else if (fromwire_your_peer_storage(cmd, payload, &payload_deserialise)) {
+		plugin_log(cmd->plugin, LOG_DBG,
+                           "Received peer_storage from peer.");
+
+        	crypto_secretstream_xchacha20poly1305_state crypto_state;
+
+                if (tal_bytelen(payload_deserialise) < ABYTES +
+			                               HEADER_LEN)
+		        return failed_peer_restore(cmd, node_id,
+						   "Too short!");
+
+                u8 *decoded_bkp = tal_arr(tmpctx, u8,
+				        tal_bytelen(payload_deserialise) -
+                                	ABYTES -
+                                	HEADER_LEN);
+
+                /* The header part */
+                if (crypto_secretstream_xchacha20poly1305_init_pull(&crypto_state,
+                                                                    payload_deserialise,
+                                                                    (&secret)->data) != 0)
+                        return failed_peer_restore(cmd, node_id,
+						   "Peer altered our data");
+
+                if (crypto_secretstream_xchacha20poly1305_pull(&crypto_state,
+                                                               decoded_bkp,
+                                                               NULL, 0,
+                                                               payload_deserialise +
+                                                               HEADER_LEN,
+                                                               tal_bytelen(payload_deserialise) -
+                                                               HEADER_LEN,
+                                                               NULL, 0) != 0)
+                        return failed_peer_restore(cmd, node_id,
+					           "Peer altered our data");
+
+
+                req = jsonrpc_request_start(cmd->plugin,
+                                    cmd,
+                                    "datastore",
+                                    after_datastore,
+                                    &forward_error,
+                                    NULL);
+
+                json_array_start(req->js, "key");
+                json_add_string(req->js, NULL, "latestbkp");
+                json_array_end(req->js);
+                json_add_hex(req->js, "hex", decoded_bkp,
+                             tal_bytelen(decoded_bkp));
+                json_add_string(req->js, "mode", "create-or-replace");
+
+                return send_outreq(cmd->plugin, req);
+	} else {
+                        plugin_log(cmd->plugin, LOG_BROKEN,
+                                   "Peer sent bad custom message for chanbackup!");
+                        return command_hook_success(cmd);
+        }
+}
 static const char *init(struct plugin *p,
 			const char *buf UNUSED,
 			const jsmntok_t *config UNUSED)
@@ -398,7 +508,14 @@ static const struct plugin_notification notifs[] = {
 	{
 		"channel_state_changed",
 		json_state_changed,
-	}
+	},
+};
+
+static const struct plugin_hook hooks[] = {
+        {
+                "custommsg",
+                handle_your_peer_storage,
+        },
 };
 
 static const struct plugin_command commands[] = { {
