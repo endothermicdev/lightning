@@ -262,7 +262,7 @@ static struct command_result *json_emergencyrecover(struct command *cmd,
 
 	if (version != VERSION) {
 		plugin_err(cmd->plugin,
-                           "Incompatible version, Contact the admin!");
+                           "Incompatible SCB file version on disk, contact the admin!");
 	}
 
 	req = jsonrpc_request_start(cmd->plugin, cmd, "recoverchannel",
@@ -606,6 +606,84 @@ static struct command_result *handle_your_peer_storage(struct command *cmd,
                         return command_hook_success(cmd);
         }
 }
+
+static struct command_result *after_latestbkp(struct command *cmd,
+					        const char *buf,
+					        const jsmntok_t *params,
+					        void *cb_arg UNUSED)
+{
+        u64 version;
+	u32 timestamp;
+	struct scb_chan **scb;
+        struct json_stream *response;
+        const jsmntok_t *datastoretok = json_get_member(buf,
+                                                        params,
+                                                        "datastore");
+        struct out_req *req;
+
+        if (datastoretok->size == 0) {
+        	response = jsonrpc_stream_success(cmd);
+		json_add_string(response, NULL,
+                                "No backup received from peers");
+		return command_finished(cmd, response);
+        }
+
+        const jsmntok_t *bkp = json_get_member(buf,
+                                               json_get_arr(datastoretok, 0),
+                                               "hex");
+
+        u8 *res = tal_hexdata(cmd,
+                              json_strdup(cmd, buf, bkp),
+                              bkp->end - bkp->start);
+	if (!fromwire_static_chan_backup(cmd,
+                                         res,
+                                         &version,
+                                         &timestamp,
+                                         &scb)) {
+		plugin_err(cmd->plugin, "Corrupted SCB on disk!");
+	}
+
+	if (version != VERSION) {
+		plugin_err(cmd->plugin,
+                           "Incompatible version, Contact the admin!");
+	}
+
+        req = jsonrpc_request_start(cmd->plugin, cmd, "recoverchannel",
+				after_recover_rpc,
+				&forward_error, NULL);
+
+	json_array_start(req->js, "scb");
+	for (size_t i=0; i<tal_count(scb); i++) {
+		u8 *scb_hex = tal_arr(cmd, u8, 0);
+		towire_scb_chan(&scb_hex,scb[i]);
+		json_add_hex(req->js, NULL, scb_hex, tal_bytelen(scb_hex));
+	}
+	json_array_end(req->js);
+
+	return send_outreq(cmd->plugin, req);
+
+}
+
+static struct command_result *json_restorefrompeer(struct command *cmd,
+				      const char *buf,
+                                      const jsmntok_t *params)
+{
+	struct out_req *req;
+
+	if (!param(cmd, buf, params, NULL))
+		return command_param_failed();
+
+        req = jsonrpc_request_start(cmd->plugin,
+                                    cmd,
+                                    "listdatastore",
+                                    after_latestbkp,
+                                    &forward_error,
+                                    NULL);
+        json_add_string(req->js, "key", "latestbkp");
+
+	return send_outreq(cmd->plugin, req);
+}
+
 static const char *init(struct plugin *p,
 			const char *buf UNUSED,
 			const jsmntok_t *config UNUSED)
@@ -659,7 +737,16 @@ static const struct plugin_command commands[] = { {
 		"Populates the DB with stub channels",
 		"returns stub channel-id's on completion",
 		json_emergencyrecover,
-	}
+	},
+        {
+                "restorefrompeer",
+                "recovery",
+                "Checks if i have got a backup from a peer, and if so, will stub "
+		"those channels in the database and if is successful, will return "
+		"list of channels that have been successfully stubbed",
+                "return channel-id's on completion",
+                json_restorefrompeer,
+        },
 };
 
 int main(int argc, char *argv[])
