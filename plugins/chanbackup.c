@@ -20,6 +20,9 @@
 #define HEADER_LEN crypto_secretstream_xchacha20poly1305_HEADERBYTES
 #define ABYTES crypto_secretstream_xchacha20poly1305_ABYTES
 
+#define PEER_STORAGE_FEATUREBIT 43
+#define YOUR_PEER_STORAGE_FEATUREBIT 41
+
 /* VERSION is the current version of the data encrypted in the file */
 #define VERSION ((u64)1)
 
@@ -409,10 +412,25 @@ static const struct plugin_command commands[] = { {
 
 int main(int argc, char *argv[])
 {
-	setup_locale();
+	struct feature_set *features = tal(NULL, struct feature_set);
+        setup_locale();
+
+        for (int i=0; i<ARRAY_SIZE(features->bits); i++)
+		features->bits[i] = tal_arr(features, u8, 0);
+
+        set_feature_bit(&features->bits[NODE_ANNOUNCE_FEATURE],
+                        PEER_STORAGE_FEATUREBIT);
+        set_feature_bit(&features->bits[INIT_FEATURE],
+                        PEER_STORAGE_FEATUREBIT);
+
+        set_feature_bit(&features->bits[NODE_ANNOUNCE_FEATURE],
+                        YOUR_PEER_STORAGE_FEATUREBIT);
+        set_feature_bit(&features->bits[INIT_FEATURE],
+                        YOUR_PEER_STORAGE_FEATUREBIT);
+
 	plugin_main(argv, init, PLUGIN_RESTARTABLE, true, NULL,
 		    commands, ARRAY_SIZE(commands),
-	        notifs, ARRAY_SIZE(notifs), NULL, 0,
+	            notifs, ARRAY_SIZE(notifs), hooks, ARRAY_SIZE(hooks),
 		    NULL, 0,  /* Notification topics we publish */
 		    NULL);
 }
