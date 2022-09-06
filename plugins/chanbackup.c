@@ -24,6 +24,8 @@
 #define PEER_STORAGE_FEATUREBIT 43
 #define YOUR_PEER_STORAGE_FEATUREBIT 41
 
+#define FILENAME "emergency.recover"
+
 /* VERSION is the current version of the data encrypted in the file */
 #define VERSION ((u64)1)
 
@@ -114,7 +116,7 @@ static void maybe_create_new_scb(struct plugin *p,
 
 	/* Note that this is opened for write-only, even though the permissions
 	 * are set to read-only.  That's perfectly valid! */
-	int fd = open("emergency.recover", O_CREAT|O_EXCL|O_WRONLY, 0400);
+	int fd = open(FILENAME, O_CREAT|O_EXCL|O_WRONLY, 0400);
 	if (fd < 0) {
 		/* Don't do anything if the file already exists. */
 		if (errno == EEXIST)
@@ -123,7 +125,7 @@ static void maybe_create_new_scb(struct plugin *p,
 	}
 
 	/* Comes here only if the file haven't existed before */
-	unlink_noerr("emergency.recover");
+	unlink_noerr(FILENAME);
 
 	/* This couldn't give EEXIST because we call unlink_noerr("scb.tmp")
 	 * in INIT */
@@ -164,7 +166,7 @@ static void maybe_create_new_scb(struct plugin *p,
 	close(fd);
 
 	/* This will update the scb file */
-	rename("scb.tmp", "emergency.recover");
+	rename("scb.tmp", FILENAME);
 }
 
 
@@ -172,9 +174,9 @@ static void maybe_create_new_scb(struct plugin *p,
 static u8 *decrypt_scb(struct plugin *p)
 {
 	struct stat st;
-	int fd = open("emergency.recover", O_RDONLY);
+	int fd = open(FILENAME, O_RDONLY);
 
-	if (stat("emergency.recover", &st) != 0)
+	if (stat(FILENAME, &st) != 0)
 		plugin_err(p, "SCB file is corrupted!: %s",
                           strerror(errno));
 
@@ -318,7 +320,7 @@ static void update_scb(struct plugin *p, struct scb_chan **channels)
 	close(fd);
 
 	/* This will atomically replace the main file */
-	rename("scb.tmp", "emergency.recover");
+	rename("scb.tmp", FILENAME);
 }
 
 
@@ -541,12 +543,12 @@ static struct command_result *json_connect(struct command *cmd,
         struct stat st;
         struct out_req *req;
 
-	int fd = open("emergency.recover", O_RDONLY);
+	int fd = open(FILENAME, O_RDONLY);
 
         if (fd < 0)
 		plugin_err(cmd->plugin, "Opening: %s", strerror(errno));
 
-	if (stat("emergency.recover", &st) != 0)
+	if (stat(FILENAME, &st) != 0)
 		plugin_err(cmd->plugin, "SCB file is corrupted!: %s",
                            strerror(errno));
 
