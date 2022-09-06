@@ -11,6 +11,7 @@
 #include <common/json_param.h>
 #include <common/json_stream.h>
 #include <common/scb_wiregen.h>
+#include <common/type_to_string.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <plugins/libplugin.h>
@@ -398,6 +399,85 @@ static struct command_result *after_send_scb(struct command *cmd,
         return send_outreq(cmd->plugin, req);
 }
 
+struct info {
+	size_t idx;
+};
+
+static struct command_result *after_send_scb_single(struct command *cmd,
+                                             const char *buf,
+                                             const jsmntok_t *params,
+                                             struct info *info)
+{
+        plugin_log(cmd->plugin, LOG_INFORM, "Peer storage sent!");
+	if (--info->idx != 0)
+		return command_still_pending(cmd);
+
+	return notification_handled(cmd);
+}
+
+static struct command_result *after_listpeers(struct command *cmd,
+                                             const char *buf,
+                                             const jsmntok_t *params,
+                                             void *cb_arg UNUSED)
+{
+	const jsmntok_t *peers, *peer, *nodeid;
+        struct out_req *req;
+	size_t i;
+        struct stat st;
+	struct info *info = tal(cmd, struct info);
+	struct node_id *node_id = tal(cmd, struct node_id);
+	bool is_connected;
+
+	int fd = open(FILENAME, O_RDONLY);
+
+        if (fd < 0)
+		plugin_err(cmd->plugin, "Opening: %s", strerror(errno));
+
+	if (stat(FILENAME, &st) != 0)
+		plugin_err(cmd->plugin, "SCB file is corrupted!: %s",
+                           strerror(errno));
+
+	u8 *scb = tal_arr(cmd, u8, st.st_size);
+
+	if (!read_all(fd, scb, tal_bytelen(scb))) {
+		plugin_log(cmd->plugin, LOG_DBG, "SCB file is corrupted!: %s",
+                           strerror(errno));
+		return NULL;
+	}
+
+        u8 *serialise_scb = towire_peer_storage(cmd, scb);
+
+	peers = json_get_member(buf, params, "peers");
+
+	info->idx = 0;
+	json_for_each_arr(i, peer, peers) {
+		json_to_bool(buf, json_get_member(buf, peer, "connected"),
+				&is_connected);
+
+		if (is_connected) {
+			nodeid = json_get_member(buf, peer, "id");
+			json_to_node_id(buf, nodeid, node_id);
+
+			req = jsonrpc_request_start(cmd->plugin,
+				cmd,
+				"sendcustommsg",
+				after_send_scb_single,
+				&forward_error,
+				info);
+
+			json_add_node_id(req->js, "node_id", node_id);
+			json_add_hex(req->js, "msg", serialise_scb,
+				tal_bytelen(serialise_scb));
+			info->idx++;
+			send_outreq(cmd->plugin, req);
+		}
+	}
+
+	if (info->idx == 0)
+		return notification_handled(cmd);
+	return command_still_pending(cmd);
+}
+
 static struct command_result *after_staticbackup(struct command *cmd,
 					         const char *buf,
 					         const jsmntok_t *params,
@@ -405,11 +485,20 @@ static struct command_result *after_staticbackup(struct command *cmd,
 {
 	struct scb_chan **scb_chan;
 	const jsmntok_t *scbs = json_get_member(buf, params, "scb");
+	struct out_req *req;
 	json_to_scb_chan(buf, scbs, &scb_chan);
 	plugin_log(cmd->plugin, LOG_INFORM, "Updating the SCB");
 
 	update_scb(cmd->plugin, scb_chan);
-	return notification_handled(cmd);
+	struct info *info = tal(cmd, struct info);
+	info->idx = 0;
+	req = jsonrpc_request_start(cmd->plugin,
+                                    cmd,
+                                    "listpeers",
+                                    after_listpeers,
+                                    &forward_error,
+                                    info);
+	return send_outreq(cmd->plugin, req);
 }
 
 static struct command_result *json_state_changed(struct command *cmd,
@@ -618,8 +707,9 @@ static struct command_result *after_latestbkp(struct command *cmd,
 
         if (datastoretok->size == 0) {
         	response = jsonrpc_stream_success(cmd);
-		json_add_string(response, NULL,
-                                "No backup received from peers");
+
+		json_add_string(response, "result",
+				"No backup received from peers");
 		return command_finished(cmd, response);
         }
 
@@ -762,7 +852,7 @@ int main(int argc, char *argv[])
         set_feature_bit(&features->bits[INIT_FEATURE],
                         YOUR_PEER_STORAGE_FEATUREBIT);
 
-	plugin_main(argv, init, PLUGIN_STATIC, true, NULL,
+	plugin_main(argv, init, PLUGIN_STATIC, true, features,
 		    commands, ARRAY_SIZE(commands),
 	            notifs, ARRAY_SIZE(notifs), hooks, ARRAY_SIZE(hooks),
 		    NULL, 0,  /* Notification topics we publish */
