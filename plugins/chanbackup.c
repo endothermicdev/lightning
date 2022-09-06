@@ -762,7 +762,7 @@ int main(int argc, char *argv[])
         set_feature_bit(&features->bits[INIT_FEATURE],
                         YOUR_PEER_STORAGE_FEATUREBIT);
 
-	plugin_main(argv, init, PLUGIN_RESTARTABLE, true, NULL,
+	plugin_main(argv, init, PLUGIN_STATIC, true, NULL,
 		    commands, ARRAY_SIZE(commands),
 	            notifs, ARRAY_SIZE(notifs), hooks, ARRAY_SIZE(hooks),
 		    NULL, 0,  /* Notification topics we publish */
