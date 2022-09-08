@@ -246,5 +246,42 @@ size_t find_gossip_store_by_timestamp(int gossip_store_fd,
 
 		off += sizeof(buf.hdr) + msglen;
 	}
+	if (off == 1)
+		return 1;
+	/* Validate message length and checksum at off. */
+	if (pread(gossip_store_fd, &buf, sizeof(buf.hdr) + sizeof(buf.type),
+		  off) == sizeof(buf.hdr) + sizeof(buf.type)) {
+		u32 msglen = be32_to_cpu(buf.hdr.len) & GOSSIP_STORE_LEN_MASK;
+		u32 checksum = be32_to_cpu(buf.hdr.crc);
+		if (msglen > 128 * 1024) {
+			status_broken("gossip_store: oversized message at "
+				      "offset %zu (msglen %u)", off, msglen);
+			/* FIXME: avoiding a crash until the bug is found. */
+			return 1;
+		}
+
+		u8 *msg = tal_arr(tmpctx, u8, msglen);
+
+		if (pread(gossip_store_fd, msg, msglen, off) != msglen){
+			/* Reading a partially written gossip message would be
+			 * reasonable normally, but unusual when 2 hours old. */
+			status_broken("gossip_store: unable to read complete "
+				      "gossip msg at offset %zu", off);
+			return 1;
+		} else if (checksum != crc32c(be32_to_cpu(buf.hdr.timestamp),
+					      msg, msglen)) {
+			/* log failure and fall back */
+			status_broken("gossip_store: bad checksum while "
+				      "advancing gossip_recent_time at offset "
+				      "%zu", off);
+			tal_free(msg);
+			/* FIXME: avoiding a crash until the bug is found. */
+			return 1;
+		}
+	} else {
+		/* Header has been read once. It should remain readable. */
+		status_failed(STATUS_FAIL_INTERNAL_ERROR, "gossip_store: gossip"
+			      " header unreadable at offset %zu", off);
+	}
 	return off;
 }
