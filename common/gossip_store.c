@@ -107,6 +107,68 @@ static bool public_msg_type(enum peer_wire type)
 	return false;
 }
 
+static void bad_offset_debug(int gossip_store_fd, size_t off)
+{
+	/* does the offset exceed the file length?
+	 * step through gossip_store until offset reached
+	 * validate each msg (checksum)
+	 *    if we can't validate, start debugging the last good message.
+	 * return string with offset, type, length of three messages (or two -
+	 * before/after if we don't land on the offset.)
+	 * may be easier to fill and return a buffer with the output
+	 * u8 *debug_msg = tal_arrz(ctx, u8, 500); */
+
+	struct {
+		struct gossip_hdr hdr;
+		be16 type;
+	} buf;
+
+	status_broken("gossip_store: === Debugging bad gossip offset: %zu ===", off);
+	/*  Is the offset within the bounds of the store? */
+	size_t gs_len = lseek(gossip_store_fd, 0, SEEK_END);
+	lseek(gossip_store_fd, 0, SEEK_SET);
+	if (gs_len < off + sizeof(buf)) {
+		status_broken("gossip_store: offset %zu exceeds gossip_store "
+			      "length (%zu)", off, gs_len);
+		// return;
+	}
+
+	size_t near_off[3] = {0, 0, 0};
+	int off_index = 0;
+	size_t current_off = 1;
+	int r;
+
+	while(off_index < 3) {
+		/* Iterate through msgs and fill offset array */
+		r = pread(gossip_store_fd, &buf, sizeof(buf), current_off);
+		if (r != sizeof(buf)){
+			status_broken("gossip_store: off %zu unable to read header", current_off);
+			break;
+		}
+		near_off[off_index] = current_off;
+		current_off += be32_to_cpu(buf.hdr.len) + sizeof(buf.hdr);
+		if (current_off > gs_len + sizeof(buf)) {
+			status_broken("gossip_store: msg at off %zu surpasses end of file", current_off);
+			break;
+		}
+		if (current_off >= off) {
+			off_index++;
+		}
+	}
+	status_broken("gossip_store: === surrounding gossip ===");
+	for (int g=0; g<off_index; g++) {	
+		r = pread(gossip_store_fd, &buf, sizeof(buf), near_off[g]);
+		if (r != sizeof(buf)){
+			status_broken("gossip_store: off %zu unable to read header", near_off[g]);
+			continue;
+		}
+		status_broken("gossip_store: [%zu] type: %i len: %i",
+			      near_off[g], buf.type, be32_to_cpu(buf.hdr.len));
+		/* FIXME: Print the content. Maybe check crc */
+	}
+
+}
+
 u8 *gossip_store_next(const tal_t *ctx,
 		      int *gossip_store_fd,
 		      u32 timestamp_min, u32 timestamp_max,
@@ -161,11 +223,13 @@ u8 *gossip_store_next(const tal_t *ctx,
 		if (r != msglen)
 			return tal_free(msg);
 
-		if (checksum != crc32c(be32_to_cpu(hdr.timestamp), msg, msglen))
+		if (checksum != crc32c(be32_to_cpu(hdr.timestamp), msg, msglen)) {
+			bad_offset_debug(*gossip_store_fd, *off);
 			status_failed(STATUS_FAIL_INTERNAL_ERROR,
 				      "gossip_store: bad checksum at offset %zu"
 				      "(was at %zu): %s",
 				      *off, initial_off, tal_hex(tmpctx, msg));
+		}
 
 		/* Definitely processing it now */
 		*off += sizeof(hdr) + msglen;
@@ -256,6 +320,7 @@ size_t find_gossip_store_by_timestamp(int gossip_store_fd,
 		if (msglen > 128 * 1024) {
 			status_broken("gossip_store: oversized message at "
 				      "offset %zu (msglen %u)", off, msglen);
+			bad_offset_debug(gossip_store_fd, off);
 			/* FIXME: avoiding a crash until the bug is found. */
 			return 1;
 		}
@@ -267,6 +332,7 @@ size_t find_gossip_store_by_timestamp(int gossip_store_fd,
 			 * reasonable normally, but unusual when 2 hours old. */
 			status_broken("gossip_store: unable to read complete "
 				      "gossip msg at offset %zu", off);
+			bad_offset_debug(gossip_store_fd, off);
 			return 1;
 		} else if (checksum != crc32c(be32_to_cpu(buf.hdr.timestamp),
 					      msg, msglen)) {
@@ -275,11 +341,14 @@ size_t find_gossip_store_by_timestamp(int gossip_store_fd,
 				      "advancing gossip_recent_time at offset "
 				      "%zu", off);
 			tal_free(msg);
+			bad_offset_debug(gossip_store_fd, off);
 			/* FIXME: avoiding a crash until the bug is found. */
 			return 1;
 		}
 	} else {
 		/* Header has been read once. It should remain readable. */
+		bad_offset_debug(gossip_store_fd, off);
+		return 1;
 		status_failed(STATUS_FAIL_INTERNAL_ERROR, "gossip_store: gossip"
 			      " header unreadable at offset %zu", off);
 	}
