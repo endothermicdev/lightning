@@ -107,7 +107,7 @@ static bool public_msg_type(enum peer_wire type)
 	return false;
 }
 
-static void bad_offset_debug(int gossip_store_fd, size_t off)
+static void bad_offset_debug(const tal_t *ctx, int gossip_store_fd, size_t off)
 {
 	/* does the offset exceed the file length?
 	 * step through gossip_store until offset reached
@@ -123,48 +123,73 @@ static void bad_offset_debug(int gossip_store_fd, size_t off)
 		be16 type;
 	} buf;
 
-	status_broken("gossip_store: === Debugging bad gossip offset: %zu ===", off);
-	/*  Is the offset within the bounds of the store? */
+	status_broken("gossip_store: === Debugging bad gossip access: %zu ===", off);
+	/*  Is the offset reasonably within the bounds of the store? */
 	size_t gs_len = lseek(gossip_store_fd, 0, SEEK_END);
 	lseek(gossip_store_fd, 0, SEEK_SET);
-	if (gs_len < off + sizeof(buf)) {
-		status_broken("gossip_store: offset %zu exceeds gossip_store "
+	if (gs_len < off + sizeof(buf))
+		status_broken("gossip_debug: offset %zu exceeds gossip_store "
 			      "length (%zu)", off, gs_len);
-		// return;
-	}
 
-	size_t near_off[3] = {0, 0, 0};
+	struct msg_data {
+		size_t off;
+		unsigned int type;
+		unsigned int len;
+		unsigned int crc;
+		bool crc_valid;
+		bool deleted;
+		bool push;
+		bool spam; /* ratelimit */
+	};
+
+	/* Ideally, we'll capture a the target message along with a before
+	 * and after.  */
+	struct msg_data msgs[3] = {{0, 0, 0, false, false, false, false},
+				   {0, 0, 0, false, false, false, false},
+				   {0, 0, 0, false, false, false, false}};
+	u8 *msg[3] = {NULL, NULL, NULL};
 	int off_index = 0;
 	size_t current_off = 1;
 	int r;
 
 	while(off_index < 3) {
-		/* Iterate through msgs and fill offset array */
 		r = pread(gossip_store_fd, &buf, sizeof(buf), current_off);
 		if (r != sizeof(buf)){
-			status_broken("gossip_store: off %zu unable to read header", current_off);
+			status_broken("gossip_debug: off %zu unable to read "
+				      "header", current_off);
 			break;
 		}
-		near_off[off_index] = current_off;
+		msgs[off_index].off = current_off;
+		msgs[off_index].type = be16_to_cpu(buf.type);
+		msgs[off_index].len = be32_to_cpu(buf.hdr.len) & GOSSIP_STORE_LEN_MASK;
+		msgs[off_index].deleted = be32_to_cpu(buf.hdr.len) & GOSSIP_STORE_LEN_DELETED_BIT;
+		msgs[off_index].push = be32_to_cpu(buf.hdr.len) & GOSSIP_STORE_LEN_PUSH_BIT;
+		msgs[off_index].spam = be32_to_cpu(buf.hdr.len) & GOSSIP_STORE_LEN_RATELIMIT_BIT;
 		current_off += be32_to_cpu(buf.hdr.len) + sizeof(buf.hdr);
 		if (current_off > gs_len + sizeof(buf)) {
-			status_broken("gossip_store: msg at off %zu surpasses end of file", current_off);
+			status_broken("gossip_debug: msg at off %zu surpasses end of file", current_off);
 			break;
 		}
+		msg[off_index] = tal_arrz(ctx, u8, msgs[off_index].len);
+		pread(gossip_store_fd, msg[off_index], msgs[off_index].len, msgs[off_index].off + sizeof(struct gossip_hdr));
+		u32 checksum = be32_to_cpu(buf.hdr.crc);
+		u32 calc_checksum = crc32c(be32_to_cpu(buf.hdr.timestamp), msg[off_index], msgs[off_index].len);
+		msgs[off_index].crc_valid = (checksum == calc_checksum);
+
 		if (current_off >= off) {
 			off_index++;
 		}
 	}
-	status_broken("gossip_store: === surrounding gossip ===");
+	status_broken("gossip_debug: === surrounding gossip (%i) ===", off_index);
 	for (int g=0; g<off_index; g++) {	
-		r = pread(gossip_store_fd, &buf, sizeof(buf), near_off[g]);
-		if (r != sizeof(buf)){
-			status_broken("gossip_store: off %zu unable to read header", near_off[g]);
-			continue;
-		}
-		status_broken("gossip_store: [%zu] type: %i len: %i",
-			      near_off[g], buf.type, be32_to_cpu(buf.hdr.len));
-		/* FIXME: Print the content. Maybe check crc */
+		status_broken("gossip_debug: [%zu] type: %i len: %i crc: %s%s%s%s",
+			      msgs[g].off, msgs[g].type, msgs[g].len,
+			      msgs[g].crc_valid ? "Valid" : "Invalid",
+			      msgs[g].deleted ? " DELETED" : "",
+			      msgs[g].push ? " PUSH" : "",
+			      msgs[g].spam ? " SPAM" : "");
+		status_broken("gossip_debug: data: %s",tal_hex(msg[g],msg[g]));
+		msg[g] = tal_free(msg[g]);
 	}
 
 }
@@ -211,11 +236,13 @@ u8 *gossip_store_next(const tal_t *ctx,
 
 		/* Messages can be up to 64k, but we also have internal ones:
 		 * 128k is plenty. */
-		if (msglen > 128 * 1024)
+		if (msglen > 128 * 1024) {
+			bad_offset_debug(ctx, *gossip_store_fd, *off);
 			status_failed(STATUS_FAIL_INTERNAL_ERROR,
 				      "gossip_store: oversize msg len %u at"
 				      " offset %zu (was at %zu)",
 				      msglen, *off, initial_off);
+		}
 
 		checksum = be32_to_cpu(hdr.crc);
 		msg = tal_arr(ctx, u8, msglen);
@@ -224,7 +251,7 @@ u8 *gossip_store_next(const tal_t *ctx,
 			return tal_free(msg);
 
 		if (checksum != crc32c(be32_to_cpu(hdr.timestamp), msg, msglen)) {
-			bad_offset_debug(*gossip_store_fd, *off);
+			bad_offset_debug(ctx, *gossip_store_fd, *off);
 			status_failed(STATUS_FAIL_INTERNAL_ERROR,
 				      "gossip_store: bad checksum at offset %zu"
 				      "(was at %zu): %s",
@@ -320,7 +347,7 @@ size_t find_gossip_store_by_timestamp(int gossip_store_fd,
 		if (msglen > 128 * 1024) {
 			status_broken("gossip_store: oversized message at "
 				      "offset %zu (msglen %u)", off, msglen);
-			bad_offset_debug(gossip_store_fd, off);
+			bad_offset_debug(tmpctx, gossip_store_fd, off);
 			/* FIXME: avoiding a crash until the bug is found. */
 			return 1;
 		}
@@ -332,7 +359,7 @@ size_t find_gossip_store_by_timestamp(int gossip_store_fd,
 			 * reasonable normally, but unusual when 2 hours old. */
 			status_broken("gossip_store: unable to read complete "
 				      "gossip msg at offset %zu", off);
-			bad_offset_debug(gossip_store_fd, off);
+			bad_offset_debug(tmpctx, gossip_store_fd, off);
 			return 1;
 		} else if (checksum != crc32c(be32_to_cpu(buf.hdr.timestamp),
 					      msg, msglen)) {
@@ -341,13 +368,13 @@ size_t find_gossip_store_by_timestamp(int gossip_store_fd,
 				      "advancing gossip_recent_time at offset "
 				      "%zu", off);
 			tal_free(msg);
-			bad_offset_debug(gossip_store_fd, off);
+			bad_offset_debug(tmpctx, gossip_store_fd, off);
 			/* FIXME: avoiding a crash until the bug is found. */
 			return 1;
 		}
 	} else {
 		/* Header has been read once. It should remain readable. */
-		bad_offset_debug(gossip_store_fd, off);
+		bad_offset_debug(tmpctx, gossip_store_fd, off);
 		return 1;
 		status_failed(STATUS_FAIL_INTERNAL_ERROR, "gossip_store: gossip"
 			      " header unreadable at offset %zu", off);
