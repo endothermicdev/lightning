@@ -43,6 +43,11 @@ struct gossip_hdr {
 };
 
 /**
+ * Check a message in the gossip_store for a valid CRC.
+ */
+bool gossip_crc_valid(int gossip_store_fd, size_t off);
+
+/**
  * Direct store accessor: loads gossip msg from store.
  *
  * Returns NULL if there are no more gossip msgs.
@@ -62,6 +67,8 @@ u8 *gossip_store_next(const tal_t *ctx,
  * @old_end: 1 if no previous end.
  */
 size_t find_gossip_store_end(int gossip_store_fd, size_t old_end);
+
+size_t find_gossip_store_last_valid(int gossip_store_fd, size_t off);
 
 /**
  * Return offset of first entry >= this timestamp.

@@ -2180,7 +2180,7 @@ def test_parms_listforwards(node_factory):
     assert len(forwards_new) == 0
     assert len(forwards_dep) == 0
 
-@pytest.mark.skip(reason="this intentionally fails to test gossip debugging output")
+# @pytest.mark.skip(reason="this intentionally fails to test gossip debugging output")
 @pytest.mark.developer("needs --dev-fast-gossip")
 def test_corrupt_gossip_store(node_factory, bitcoind):
     """This test troubleshoots gossip offset issues.
@@ -2197,7 +2197,7 @@ def test_corrupt_gossip_store(node_factory, bitcoind):
                                   "0100"      # WIRE_CHANNEL_ANNOUNCEMENT
                                   "bb8d7b6998cca3c2b3ce12a6bd73a8872c808bb48de2a30c5ad9cdf835905d1e27505755087e675fb517bbac6beb227629b694ea68f49d357458327138978ebfd7adfde1c69d0d2f497154256f6d5567a5cf2317c589e0046c0cc2b3e986cf9b6d3b44742bd57bce32d72cd1180a7f657795976130b20508b239976d3d4cdc4d0d6e6fbb9ab6471f664a662972e406f519eab8bce87a8c0365646df5acbc04c91540b4c7c518cec680a4a6af14dae1aca0fd5525220f7f0e96fcd2adef3c803ac9427fe71034b55a50536638820ef21903d09ccddd38396675b598587fa886ca711415c813fc6d69f46552b9a0a539c18f265debd0e2e286980a118ba349c216000043497fd7f826957108f4a30fd9cec3aeba79972084e90ead01ea33090000000013a63c0000b50001021bf3de4e84e3d52f9a3e36fbdcd2c4e8dbf203b9ce4fc07c2f03be6c21d0c67503f113414ebdc6c1fb0f33c99cd5a1d09dd79e7fdf2468cf1fe1af6674361695d203801fd8ab98032f11cc9e4916dd940417082727077609d5c7f8cc6e9a3ad25dd102517164b97ab46cee3826160841a36c46a2b7b9c74da37bdc070ed41ba172033a"
                                   "0000000a"  # len
-                                  "99dc98b5"  # csum (corrupt - should be "99dc98b4")
+                                  "99dc98b4"  # csum (corrupt - should be "99dc98b4")
                                   "00000000"  # timestamp
                                   "1005"      # WIRE_GOSSIP_STORE_CHANNEL_AMOUNT
                                   "0000000001000000"

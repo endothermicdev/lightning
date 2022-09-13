@@ -3,6 +3,7 @@
 #include <common/gossip_store.h>
 #include <common/per_peer_state.h>
 #include <common/status.h>
+#include <common/daemon.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <gossipd/gossip_store_wiregen.h>
@@ -107,6 +108,36 @@ static bool public_msg_type(enum peer_wire type)
 	return false;
 }
 
+bool gossip_crc_valid(int gossip_store_fd, size_t off){
+	struct gossip_hdr hdr;
+	int r;
+	u32 msglen, checksum;
+
+	r = pread(gossip_store_fd, &hdr, sizeof(hdr), off);
+	if (r != sizeof(hdr)){
+		// status_broken("gossip off %zu failed CRC validation (header read only %i bytes)", off, r);
+		return false;
+	}
+	msglen = be32_to_cpu(hdr.len) & GOSSIP_STORE_LEN_MASK;
+	checksum = be32_to_cpu(hdr.crc);
+	if (msglen > 128 * 1024){
+		// status_broken("gossip off %zu failed CRC validation (msglen=%i vs %i)", off, r, msglen);
+		return false;
+	}
+	u8 *msg = tal_arrz(tmpctx, u8, msglen);
+	r = pread(gossip_store_fd, msg, msglen, off + sizeof(hdr));
+	if (r != msglen){
+		tal_free(msg);
+		// status_broken("gossip off %zu failed CRC validation (msglen=%i vs %i)", off, r, msglen);
+		return false;
+	}
+	/* FIXME: Calculate checksum */
+	bool valid = (checksum == crc32c(be32_to_cpu(hdr.timestamp), msg, msglen));
+	tal_free(msg);
+	return valid;
+}
+
+
 static void bad_offset_debug(const tal_t *ctx, int gossip_store_fd, size_t off)
 {
 	/* does the offset exceed the file length?
@@ -124,6 +155,7 @@ static void bad_offset_debug(const tal_t *ctx, int gossip_store_fd, size_t off)
 	} buf;
 
 	status_broken("gossip_store: === Debugging bad gossip access: %zu ===", off);
+	send_backtrace("arrived at bad_offset_debug");
 	/*  Is the offset reasonably within the bounds of the store? */
 	size_t gs_len = lseek(gossip_store_fd, 0, SEEK_END);
 	lseek(gossip_store_fd, 0, SEEK_SET);
@@ -155,8 +187,8 @@ static void bad_offset_debug(const tal_t *ctx, int gossip_store_fd, size_t off)
 	while(off_index < 3) {
 		r = pread(gossip_store_fd, &buf, sizeof(buf), current_off);
 		if (r != sizeof(buf)){
-			status_broken("gossip_debug: off %zu unable to read "
-				      "header", current_off);
+			// status_broken("gossip_debug: off %zu unable to read "
+			//	      "header", current_off);
 			break;
 		}
 		msgs[off_index].off = current_off;
@@ -181,7 +213,7 @@ static void bad_offset_debug(const tal_t *ctx, int gossip_store_fd, size_t off)
 		}
 	}
 	status_broken("gossip_debug: === surrounding gossip (%i) ===", off_index);
-	for (int g=0; g<off_index; g++) {	
+	for (int g=0; g<off_index; g++) {
 		status_broken("gossip_debug: [%zu] type: %i len: %i crc: %s%s%s%s",
 			      msgs[g].off, msgs[g].type, msgs[g].len,
 			      msgs[g].crc_valid ? "Valid" : "Invalid",
@@ -206,7 +238,8 @@ u8 *gossip_store_next(const tal_t *ctx,
 
 	while (!msg) {
 		struct gossip_hdr hdr;
-		u32 msglen, checksum, timestamp;
+		// u32 msglen, checksum, timestamp;
+		u32 msglen, timestamp;
 		bool push, ratelimited;
 		int type, r;
 
@@ -244,19 +277,26 @@ u8 *gossip_store_next(const tal_t *ctx,
 				      msglen, *off, initial_off);
 		}
 
-		checksum = be32_to_cpu(hdr.crc);
+		// checksum = be32_to_cpu(hdr.crc);
 		msg = tal_arr(ctx, u8, msglen);
 		r = pread(*gossip_store_fd, msg, msglen, *off + r);
 		if (r != msglen)
 			return tal_free(msg);
 
-		if (checksum != crc32c(be32_to_cpu(hdr.timestamp), msg, msglen)) {
+		if (!gossip_crc_valid(*gossip_store_fd, *off)) {
 			bad_offset_debug(ctx, *gossip_store_fd, *off);
 			status_failed(STATUS_FAIL_INTERNAL_ERROR,
 				      "gossip_store: bad checksum at offset %zu"
 				      "(was at %zu): %s",
 				      *off, initial_off, tal_hex(tmpctx, msg));
 		}
+		// if (checksum != crc32c(be32_to_cpu(hdr.timestamp), msg, msglen)) {
+		// 	bad_offset_debug(ctx, *gossip_store_fd, *off);
+		// 	status_failed(STATUS_FAIL_INTERNAL_ERROR,
+		// 		      "gossip_store: bad checksum at offset %zu"
+		// 		      "(was at %zu): %s",
+		// 		      *off, initial_off, tal_hex(tmpctx, msg));
+		// }
 
 		/* Definitely processing it now */
 		*off += sizeof(hdr) + msglen;
@@ -290,6 +330,7 @@ size_t find_gossip_store_end(int gossip_store_fd, size_t off)
 	} buf;
 	int r;
 
+	lseek(gossip_store_fd, off, SEEK_SET);
 	while ((r = read(gossip_store_fd, &buf,
 			 sizeof(buf.hdr) + sizeof(buf.type)))
 	       == sizeof(buf.hdr) + sizeof(buf.type)) {
@@ -299,10 +340,55 @@ size_t find_gossip_store_end(int gossip_store_fd, size_t off)
 		if (buf.type == CPU_TO_BE16(WIRE_GOSSIP_STORE_ENDED))
 			break;
 
+		if (msglen > 128 * 1024){
+			status_broken("gossip_store read msg @%zu (type %u) as len %u", off, be16_to_cpu(buf.type), msglen);
+			bad_offset_debug(tmpctx, gossip_store_fd, off);
+			return 1;
+		}
 		off += sizeof(buf.hdr) + msglen;
 		lseek(gossip_store_fd, off, SEEK_SET);
 	}
 	return off;
+}
+
+size_t find_gossip_store_last_valid(int gossip_store_fd, size_t off)
+{
+	/* We cheat and read first two bytes of message too. */
+	struct {
+		struct gossip_hdr hdr;
+		be16 type;
+	} buf;
+	int r;
+	size_t prior_off;
+
+	lseek(gossip_store_fd, 1, SEEK_SET);
+	while ((r = read(gossip_store_fd, &buf,
+			 sizeof(buf.hdr) + sizeof(buf.type)))
+	       == sizeof(buf.hdr) + sizeof(buf.type)) {
+		u32 msglen = be32_to_cpu(buf.hdr.len) & GOSSIP_STORE_LEN_MASK;
+
+		/* Don't swallow end marker! */
+		if (buf.type == CPU_TO_BE16(WIRE_GOSSIP_STORE_ENDED))
+			break;
+
+		if (msglen > 128 * 1024){
+			status_broken("gossip_store read msg @%zu (type %u) as len %u", off, be16_to_cpu(buf.type), msglen);
+			bad_offset_debug(tmpctx, gossip_store_fd, off);
+			return 1;
+		}
+		prior_off = off;
+		off += sizeof(buf.hdr) + msglen;
+		lseek(gossip_store_fd, off, SEEK_SET);
+	}
+	if (gossip_crc_valid(gossip_store_fd, off))
+		return off;
+	else if (gossip_crc_valid(gossip_store_fd, prior_off)){
+		status_broken("gossip_debug: CRC @[%zu] failed. Falling back to [%zu]",off,prior_off);
+		return prior_off;
+	}
+	if (off == 770)
+		status_broken("**** returning from find_gossip_store_last_valid with 770 ****");
+	return 1;
 }
 
 /* Keep seeking forward until we hit something >= timestamp */
@@ -316,6 +402,12 @@ size_t find_gossip_store_by_timestamp(int gossip_store_fd,
 		be16 type;
 	} buf;
 	int r;
+	size_t initial_off = off;
+
+	// if(off == 770)
+	// 	status_broken("*** find_gossip_store_by_timestamp called with off 770 ***");
+	// else
+	// 	status_debug("*** find_gossip_store_by_timestamp called with off %zu ***", off);
 
 	while ((r = pread(gossip_store_fd, &buf,
 			  sizeof(buf.hdr) + sizeof(buf.type), off))
@@ -335,7 +427,10 @@ size_t find_gossip_store_by_timestamp(int gossip_store_fd,
 			break;
 		}
 
-		off += sizeof(buf.hdr) + msglen;
+		if (gossip_crc_valid(gossip_store_fd, off + sizeof(buf.hdr) + msglen))
+			off += sizeof(buf.hdr) + msglen;
+		else
+			break;
 	}
 	if (off == 1)
 		return 1;
@@ -343,7 +438,7 @@ size_t find_gossip_store_by_timestamp(int gossip_store_fd,
 	if (pread(gossip_store_fd, &buf, sizeof(buf.hdr) + sizeof(buf.type),
 		  off) == sizeof(buf.hdr) + sizeof(buf.type)) {
 		u32 msglen = be32_to_cpu(buf.hdr.len) & GOSSIP_STORE_LEN_MASK;
-		u32 checksum = be32_to_cpu(buf.hdr.crc);
+		// u32 checksum = be32_to_cpu(buf.hdr.crc);
 		if (msglen > 128 * 1024) {
 			status_broken("gossip_store: oversized message at "
 				      "offset %zu (msglen %u)", off, msglen);
@@ -357,16 +452,26 @@ size_t find_gossip_store_by_timestamp(int gossip_store_fd,
 		if (pread(gossip_store_fd, msg, msglen, off) != msglen){
 			/* Reading a partially written gossip message would be
 			 * reasonable normally, but unusual when 2 hours old. */
-			status_broken("gossip_store: unable to read complete "
-				      "gossip msg at offset %zu", off);
+			status_broken("gossip_store: incomplete read "
+				      "at offset %zu", off);
 			bad_offset_debug(tmpctx, gossip_store_fd, off);
 			return 1;
-		} else if (checksum != crc32c(be32_to_cpu(buf.hdr.timestamp),
-					      msg, msglen)) {
+		// } else if (checksum != crc32c(be32_to_cpu(buf.hdr.timestamp),
+		// 			      msg, msglen)) {
+		// 	/* log failure and fall back */
+		// 	status_broken("gossip_store: bad checksum while "
+		// 		      "advancing gossip_recent_time at offset "
+		// 		      "%zu", off);
+		// 	tal_free(msg);
+		// 	bad_offset_debug(tmpctx, gossip_store_fd, off);
+		// 	/* FIXME: avoiding a crash until the bug is found. */
+		// 	return 1;
+		// }
+		} else if (!gossip_crc_valid(gossip_store_fd, off)) {
 			/* log failure and fall back */
 			status_broken("gossip_store: bad checksum while "
 				      "advancing gossip_recent_time at offset "
-				      "%zu", off);
+				      "%zu from original off %zu", off, initial_off);
 			tal_free(msg);
 			bad_offset_debug(tmpctx, gossip_store_fd, off);
 			/* FIXME: avoiding a crash until the bug is found. */
@@ -374,6 +479,8 @@ size_t find_gossip_store_by_timestamp(int gossip_store_fd,
 		}
 	} else {
 		/* Header has been read once. It should remain readable. */
+		/* Actually, not true.  We're reading a new msg here.*/
+		status_broken("gossip_store: find_gossip_store_with_timestamp requested from %zu", initial_off);
 		bad_offset_debug(tmpctx, gossip_store_fd, off);
 		return 1;
 		status_failed(STATUS_FAIL_INTERNAL_ERROR, "gossip_store: gossip"

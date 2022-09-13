@@ -295,7 +295,7 @@ void setup_peer_gossip_store(struct peer *peer,
 		/* During tests, particularly, we find that the gossip_store
 		 * moves fast, so make sure it really does start at the end. */
 		peer->gs.off
-			= find_gossip_store_end(peer->daemon->gossip_store_fd,
+			= find_gossip_store_last_valid(peer->daemon->gossip_store_fd,
 						peer->daemon->gossip_store_end);
 	}
 }
