@@ -133,6 +133,23 @@ default_rust_setting()
     fi
 }
 
+default_pip()
+{
+    PIP_BINS="pip3,python3 -m pip,pip"
+    IFS=','
+    for p in $PIP_BINS; do
+        # Strip `-m pip` and keep only 'python3'
+        exe=$(echo "$p" | awk '{print $1}')
+        # shellcheck disable=SC2086
+        if [ "$(which $exe)" != "" ] ; then
+            if eval "$p --version 2" 1>/dev/null 2>&1; then
+                echo "$p";
+                return;
+            fi
+        fi
+    done
+}
+
 set_defaults()
 {
     # Default values, loaded from environment or canned.
@@ -154,6 +171,7 @@ set_defaults()
     TEST_NETWORK=${TEST_NETWORK:-regtest}
     FUZZING=${FUZZING:-0}
     RUST=${RUST:-$(default_rust_setting)}
+    PIP=${PIP:-$(default_pip)}
 }
 
 usage()
@@ -473,6 +491,7 @@ add_var HAVE_LOWDOWN "$HAVE_LOWDOWN"
 add_var SHA256SUM "$SHA256SUM"
 add_var FUZZING "$FUZZING"
 add_var RUST "$RUST"
+add_var PIP "$PIP"
 
 # Hack to avoid sha256 name clash with libwally: will be fixed when that
 # becomes a standalone shared lib.

@@ -10,6 +10,10 @@ ALL_PROGRAMS += $(TOOLS)
 
 TOOLS_COMMON_OBJS = common/utils.o
 
+# python3 -m pip is an alternative that might be used. Separate the bin here.
+PIP_EXE=$(shell echo ${PIP} | awk '{print $$1}')
+PIP_ARGS := $(shell echo ${PIP} | awk '{print $$2} {print $$3}')
+
 # We force make to relink this every time, to detect version changes.
 # Do it atomically, otherwise parallel builds can get upset!
 tools/headerversions: $(FORCE) tools/headerversions.o libccan.a
@@ -27,5 +31,13 @@ clean: tools-clean
 tools-clean:
 	$(RM) tools/headerversions
 	$(RM) tools/headerversions.o
+
+tools/pip-install:
+	@if which $(PIP_EXE) >> /dev/null; then \
+		echo "installing python dependencies"; \
+		$(PIP_EXE) $(PIP_ARGS) install -r tools/requirements.txt ; \
+	else \
+		(echo "Pip not installed, skipping python dependencies") ; \
+	fi
 
 include tools/test/Makefile

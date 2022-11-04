@@ -801,7 +801,9 @@ install-data: installdirs $(MAN1PAGES) $(MAN5PAGES) $(MAN7PAGES) $(MAN8PAGES) $(
 	$(INSTALL_DATA) $(MAN8PAGES) $(DESTDIR)$(man8dir)
 	$(INSTALL_DATA) $(DOC_DATA) $(DESTDIR)$(docdir)
 
-install: install-program install-data
+install-python: tools/pip-install
+
+install: install-program install-data install-python
 
 uninstall:
 	@$(NORMAL_UNINSTALL)
