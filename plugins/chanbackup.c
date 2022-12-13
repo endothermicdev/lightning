@@ -5,6 +5,7 @@
 #include <ccan/json_out/json_out.h>
 #include <ccan/noerr/noerr.h>
 #include <ccan/read_write_all/read_write_all.h>
+#include <ccan/tal/grab_file/grab_file.h>
 #include <ccan/tal/str/str.h>
 #include <ccan/time/time.h>
 #include <common/hsm_encryption.h>
@@ -169,57 +170,66 @@ static void maybe_create_new_scb(struct plugin *p,
 	rename("scb.tmp", FILENAME);
 }
 
-
-/* Returns decrypted SCB in form of a u8 array */
-static u8 *decrypt_scb(struct plugin *p)
+/* FIXME: Replace with grab_file */
+static u8* get_file_data(struct plugin *p)
 {
-	struct stat st;
 	int fd = open(FILENAME, O_RDONLY);
+        struct stat st;
+
+        if (fd < 0)
+		plugin_err(p, "Opening: %s", strerror(errno));
 
 	if (stat(FILENAME, &st) != 0)
 		plugin_err(p, "SCB file is corrupted!: %s",
-                          strerror(errno));
+                           strerror(errno));
 
-	u8 final[st.st_size];
+	u8 *scb = tal_arr(NULL, u8, st.st_size);
 
-	if (!read_all(fd, &final, st.st_size)) {
+	if (!read_all(fd, scb, tal_bytelen(scb))) {
 		plugin_log(p, LOG_DBG, "SCB file is corrupted!: %s",
                            strerror(errno));
 		return NULL;
 	}
 
+	if (close(fd) != 0) {
+	        plugin_err(p, "closing: %s", strerror(errno));
+	}
+	return scb;
+}
+
+/* Returns decrypted SCB in form of a u8 array */
+static u8 *decrypt_scb(struct plugin *p)
+{
+	u8 *filedata = get_file_data(p);
+
 	crypto_secretstream_xchacha20poly1305_state crypto_state;
 
-	if (st.st_size < ABYTES +
+	if (tal_bytelen(filedata) < ABYTES +
 			 HEADER_LEN)
 		plugin_err(p, "SCB file is corrupted!");
 
-	u8 *ans = tal_arr(tmpctx, u8, st.st_size -
+	u8 *decrypt_scb = tal_arr(tmpctx, u8, tal_bytelen(filedata) -
                           ABYTES -
                           HEADER_LEN);
 
 	/* The header part */
 	if (crypto_secretstream_xchacha20poly1305_init_pull(&crypto_state,
-							    final,
+							    filedata,
 							    (&secret)->data) != 0)
 	{
 		plugin_err(p, "SCB file is corrupted!");
 	}
 
-	if (crypto_secretstream_xchacha20poly1305_pull(&crypto_state, ans,
+	if (crypto_secretstream_xchacha20poly1305_pull(&crypto_state, decrypt_scb,
 						       NULL, 0,
-						       final +
+						       filedata +
 						       HEADER_LEN,
-						       st.st_size -
+						       tal_bytelen(filedata)-
 						       HEADER_LEN,
 						       NULL, 0) != 0) {
 		plugin_err(p, "SCB file is corrupted!");
 	}
-
-	if (close(fd) != 0)
-		plugin_err(p, "Closing: %s", strerror(errno));
-
-	return ans;
+	return decrypt_scb;
 }
 
 static struct command_result *after_recover_rpc(struct command *cmd,
@@ -425,27 +435,11 @@ static struct command_result *after_listpeers(struct command *cmd,
 	const jsmntok_t *peers, *peer, *nodeid;
         struct out_req *req;
 	size_t i;
-        struct stat st;
 	struct info *info = tal(cmd, struct info);
 	struct node_id *node_id = tal(cmd, struct node_id);
 	bool is_connected;
 
-	int fd = open(FILENAME, O_RDONLY);
-
-        if (fd < 0)
-		plugin_err(cmd->plugin, "Opening: %s", strerror(errno));
-
-	if (stat(FILENAME, &st) != 0)
-		plugin_err(cmd->plugin, "SCB file is corrupted!: %s",
-                           strerror(errno));
-
-	u8 *scb = tal_arr(cmd, u8, st.st_size);
-
-	if (!read_all(fd, scb, tal_bytelen(scb))) {
-		plugin_log(cmd->plugin, LOG_DBG, "SCB file is corrupted!: %s",
-                           strerror(errno));
-		return NULL;
-	}
+	u8 *scb = get_file_data(cmd->plugin);
 
         u8 *serialise_scb = towire_peer_storage(cmd, scb);
 
@@ -540,26 +534,8 @@ static struct command_result *json_connect(struct command *cmd,
 
         struct node_id *node_id = tal(cmd, struct node_id);
         json_to_node_id(buf, nodeid, node_id);
-        struct stat st;
-        struct out_req *req;
-
-	int fd = open(FILENAME, O_RDONLY);
-
-        if (fd < 0)
-		plugin_err(cmd->plugin, "Opening: %s", strerror(errno));
-
-	if (stat(FILENAME, &st) != 0)
-		plugin_err(cmd->plugin, "SCB file is corrupted!: %s",
-                           strerror(errno));
-
-	u8 *scb = tal_arr(cmd, u8, st.st_size);
-
-	if (!read_all(fd, scb, tal_bytelen(scb))) {
-		plugin_log(cmd->plugin, LOG_DBG, "SCB file is corrupted!: %s",
-                           strerror(errno));
-		return NULL;
-	}
-
+	struct out_req *req;
+	u8 *scb = get_file_data(cmd->plugin);
         u8 *serialise_scb = towire_peer_storage(cmd, scb);
 
         req = jsonrpc_request_start(cmd->plugin,
@@ -572,14 +548,6 @@ static struct command_result *json_connect(struct command *cmd,
         json_add_node_id(req->js, "node_id", node_id);
         json_add_hex(req->js, "msg", serialise_scb,
                      tal_bytelen(serialise_scb));
-
-	if (fsync(fd) != 0) {
-	        plugin_err(cmd->plugin, "closing: %s", strerror(errno));
-	}
-
-	if (close(fd) != 0) {
-	        plugin_err(cmd->plugin, "closing: %s", strerror(errno));
-	}
 
         return send_outreq(cmd->plugin, req);
 }
