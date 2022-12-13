@@ -723,9 +723,7 @@ static bool handle_custommsg(struct daemon *daemon,
 {
 	enum peer_wire type = fromwire_peektype(msg);
 
-	/* Making an exception for peer_storage and
-	 * your_peer_storage type of message. */
-	if (type % 2 == 1 && (type == 7 || type == 9 || !peer_wire_is_defined(type))) {
+	if (type % 2 == 1 && peer_wire_is_internal(type)) {
 		/* The message is not part of the messages we know how to
 		 * handle. Assuming this is a custommsg, we just forward it to the
 		 * master. */

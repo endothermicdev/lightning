@@ -117,6 +117,17 @@ bool is_unknown_msg_discardable(const u8 *cursor)
 	enum peer_wire t = fromwire_peektype(cursor);
 	return unknown_type(t) && (t & 1);
 }
+/* Returns true if the message type should be treated as a custommsg */
+bool peer_wire_is_internal(enum peer_wire type)
+{
+	if (!peer_wire_is_defined(type))
+		return true;
+
+	/* handled by pluigns */
+	if (type == WIRE_PEER_STORAGE || type == WIRE_YOUR_PEER_STORAGE)
+		return true;
+	return false;
+}
 
 /* Extract channel_id from various packets, return true if possible. */
 bool extract_channel_id(const u8 *in_pkt, struct channel_id *channel_id)

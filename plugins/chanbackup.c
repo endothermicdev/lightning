@@ -8,6 +8,7 @@
 #include <ccan/tal/grab_file/grab_file.h>
 #include <ccan/tal/str/str.h>
 #include <ccan/time/time.h>
+#include <common/features.h>
 #include <common/hsm_encryption.h>
 #include <common/json_param.h>
 #include <common/json_stream.h>
@@ -21,9 +22,6 @@
 
 #define HEADER_LEN crypto_secretstream_xchacha20poly1305_HEADERBYTES
 #define ABYTES crypto_secretstream_xchacha20poly1305_ABYTES
-
-#define PEER_STORAGE_FEATUREBIT 43
-#define YOUR_PEER_STORAGE_FEATUREBIT 41
 
 #define FILENAME "emergency.recover"
 
@@ -806,21 +804,11 @@ static const struct plugin_command commands[] = { {
 
 int main(int argc, char *argv[])
 {
-	struct feature_set *features = tal(NULL, struct feature_set);
         setup_locale();
-
-        for (int i=0; i<ARRAY_SIZE(features->bits); i++)
-		features->bits[i] = tal_arr(features, u8, 0);
-
-        set_feature_bit(&features->bits[NODE_ANNOUNCE_FEATURE],
-                        PEER_STORAGE_FEATUREBIT);
-        set_feature_bit(&features->bits[INIT_FEATURE],
-                        PEER_STORAGE_FEATUREBIT);
-
-        set_feature_bit(&features->bits[NODE_ANNOUNCE_FEATURE],
-                        YOUR_PEER_STORAGE_FEATUREBIT);
-        set_feature_bit(&features->bits[INIT_FEATURE],
-                        YOUR_PEER_STORAGE_FEATUREBIT);
+	struct feature_set *features = feature_set_for_feature(NULL, PEER_STORAGE_FEATURE);
+	feature_set_or(features,
+		       take(feature_set_for_feature(NULL,
+						    YOUR_PEER_STORAGE_FEATURE)));
 
 	plugin_main(argv, init, PLUGIN_STATIC, true, features,
 		    commands, ARRAY_SIZE(commands),
