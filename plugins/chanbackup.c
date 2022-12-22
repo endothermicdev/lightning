@@ -168,29 +168,14 @@ static void maybe_create_new_scb(struct plugin *p,
 	rename("scb.tmp", FILENAME);
 }
 
-/* FIXME: Replace with grab_file */
 static u8* get_file_data(struct plugin *p)
 {
-	int fd = open(FILENAME, O_RDONLY);
-        struct stat st;
-
-        if (fd < 0)
-		plugin_err(p, "Opening: %s", strerror(errno));
-
-	if (stat(FILENAME, &st) != 0)
-		plugin_err(p, "SCB file is corrupted!: %s",
-                           strerror(errno));
-
-	u8 *scb = tal_arr(NULL, u8, st.st_size);
-
-	if (!read_all(fd, scb, tal_bytelen(scb))) {
-		plugin_log(p, LOG_DBG, "SCB file is corrupted!: %s",
-                           strerror(errno));
-		return NULL;
-	}
-
-	if (close(fd) != 0) {
-	        plugin_err(p, "closing: %s", strerror(errno));
+	u8 *scb = grab_file(tmpctx, "emergency.recover");
+	if (!scb) {
+		plugin_err(p, "Cannot read emergency.recover: %s", strerror(errno));
+	} else {
+		/* grab_file adds nul term */
+		tal_resize(&scb, tal_bytelen(scb) - 1);
 	}
 	return scb;
 }
@@ -572,18 +557,22 @@ static struct command_result *handle_your_peer_storage(struct command *cmd,
 					         const char *buf,
 					         const jsmntok_t *params)
 {
-        const jsmntok_t *nodeidtok, *payloadtok;
-        struct node_id *node_id = tal(cmd, struct node_id);
+        struct node_id node_id;
         u8 *payload, *payload_deserialise;
         struct out_req *req;
-
-        nodeidtok = json_get_member(buf, params, "peer_id");
-        payloadtok = json_get_member(buf, params, "payload");
-        json_to_node_id(buf, nodeidtok, node_id);
-
-        payload = tal_hexdata(cmd,
-                              json_strdup(tmpctx, buf, payloadtok),
-                              payloadtok->end - payloadtok->start);
+	const char *err = json_scan(cmd, buf, params,
+				    "{payload:%,peer_id:%}",
+				    JSON_SCAN_TAL(cmd,
+				    		  json_tok_bin_from_hex,
+				    		  &payload),
+				    JSON_SCAN(json_to_node_id,
+				    	      &node_id));
+	if (err) {
+		plugin_err(cmd->plugin,
+			   "`your_peer_storage` response did not scan %s: %.*s",
+			   err, json_tok_full_len(params),
+			   json_tok_full(buf, params));
+	}
 
 	if (fromwire_peer_storage(cmd, payload, &payload_deserialise)) {
 		req = jsonrpc_request_start(cmd->plugin,
@@ -594,7 +583,7 @@ static struct command_result *handle_your_peer_storage(struct command *cmd,
                                     NULL);
 
 		json_array_start(req->js, "key");
-		json_add_node_id(req->js, NULL, node_id);
+		json_add_node_id(req->js, NULL, &node_id);
 		json_add_string(req->js, NULL, "chanbackup");
 		json_array_end(req->js);
 		json_add_hex(req->js, "hex", payload_deserialise,
@@ -610,7 +599,7 @@ static struct command_result *handle_your_peer_storage(struct command *cmd,
 
                 if (tal_bytelen(payload_deserialise) < ABYTES +
 			                               HEADER_LEN)
-		        return failed_peer_restore(cmd, node_id,
+		        return failed_peer_restore(cmd, &node_id,
 						   "Too short!");
 
                 u8 *decoded_bkp = tal_arr(tmpctx, u8,
@@ -622,7 +611,7 @@ static struct command_result *handle_your_peer_storage(struct command *cmd,
                 if (crypto_secretstream_xchacha20poly1305_init_pull(&crypto_state,
                                                                     payload_deserialise,
                                                                     (&secret)->data) != 0)
-                        return failed_peer_restore(cmd, node_id,
+                        return failed_peer_restore(cmd, &node_id,
 						   "Peer altered our data");
 
                 if (crypto_secretstream_xchacha20poly1305_pull(&crypto_state,
@@ -633,7 +622,7 @@ static struct command_result *handle_your_peer_storage(struct command *cmd,
                                                                tal_bytelen(payload_deserialise) -
                                                                HEADER_LEN,
                                                                NULL, 0) != 0)
-                        return failed_peer_restore(cmd, node_id,
+                        return failed_peer_restore(cmd, &node_id,
 					           "Peer altered our data");
 
 
