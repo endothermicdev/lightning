@@ -338,27 +338,14 @@ static struct command_result
 }
 
 static struct command_result *after_listdatastore(struct command *cmd,
-                                                  const char *buf,
-                                                  const jsmntok_t *params,
+                                                  const u8 *hexdata,
                                                   struct node_id *nodeid)
 {
-        const jsmntok_t *datastoretok = json_get_member(buf,
-                                                        params,
-                                                        "datastore");
-
-        if (datastoretok->size == 0)
+        if (tal_bytelen(hexdata) == 0)
         	return notification_handled(cmd);
-
-        const jsmntok_t *payloadtok = json_get_member(buf,
-                                                      json_get_arr(datastoretok,
-                                                                   0),
-                                                      "hex");
         struct out_req *req;
 
-        u8 *hexdata = tal_hexdata(cmd,
-                                  json_strdup(cmd, buf, payloadtok),
-                                  payloadtok->end - payloadtok->start),
-        *payload = towire_your_peer_storage(cmd, hexdata);
+        u8 *payload = towire_your_peer_storage(cmd, hexdata);
 
         plugin_log(cmd->plugin, LOG_DBG,
                    "sending their backup from our datastore");
@@ -383,15 +370,16 @@ static struct command_result *after_send_scb(struct command *cmd,
                                              struct node_id *nodeid)
 {
         plugin_log(cmd->plugin, LOG_DBG, "Peer storage sent!");
-        struct out_req *req;
-        req = jsonrpc_request_start(cmd->plugin,
-                                    cmd,
-                                    "listdatastore",
-                                    after_listdatastore,
-                                    &forward_error,
-                                    nodeid);
-        json_add_node_id(req->js,"key",nodeid);
-        return send_outreq(cmd->plugin, req);
+
+	return jsonrpc_get_datastore_binary(cmd->plugin,
+				     	    cmd,
+				     	    tal_fmt(cmd,
+				     		    "chanbackup/peers/%s",
+					     	     type_to_string(tmpctx,
+							            struct node_id,
+							    	    nodeid)),
+				     	    after_listdatastore,
+				     	    nodeid);
 }
 
 struct info {
@@ -535,14 +523,6 @@ static struct command_result *json_connect(struct command *cmd,
         return send_outreq(cmd->plugin, req);
 }
 
-static struct command_result *after_datastore(struct command *cmd,
-                                             const char *buf,
-                                             const jsmntok_t *params,
-                                             void *cb_arg UNUSED)
-{
-        return command_hook_success(cmd);
-}
-
 static struct command_result *failed_peer_restore(struct command *cmd,
 						  struct node_id *node_id,
 						  char *reason)
@@ -559,7 +539,6 @@ static struct command_result *handle_your_peer_storage(struct command *cmd,
 {
         struct node_id node_id;
         u8 *payload, *payload_deserialise;
-        struct out_req *req;
 	const char *err = json_scan(cmd, buf, params,
 				    "{payload:%,peer_id:%}",
 				    JSON_SCAN_TAL(cmd,
@@ -575,22 +554,18 @@ static struct command_result *handle_your_peer_storage(struct command *cmd,
 	}
 
 	if (fromwire_peer_storage(cmd, payload, &payload_deserialise)) {
-		req = jsonrpc_request_start(cmd->plugin,
-                                    cmd,
-                                    "datastore",
-                                    after_datastore,
-                                    &forward_error,
-                                    NULL);
-
-		json_array_start(req->js, "key");
-		json_add_node_id(req->js, NULL, &node_id);
-		json_add_string(req->js, NULL, "chanbackup");
-		json_array_end(req->js);
-		json_add_hex(req->js, "hex", payload_deserialise,
-			tal_bytelen(payload_deserialise));
-		json_add_string(req->js, "mode", "create-or-replace");
-
-		return send_outreq(cmd->plugin, req);
+		return jsonrpc_set_datastore_binary(cmd->plugin,
+					     	    cmd,
+					     	    tal_fmt(cmd,
+						    	    "chanbackup/peers/%s",
+					     	     	    type_to_string(tmpctx,
+						     		    	   struct node_id,
+								    	   &node_id)),
+						    payload_deserialise,
+						    "create-or-replace",
+						    NULL,
+						    NULL,
+						    NULL);
 	} else if (fromwire_your_peer_storage(cmd, payload, &payload_deserialise)) {
 		plugin_log(cmd->plugin, LOG_DBG,
                            "Received peer_storage from peer.");
@@ -626,21 +601,14 @@ static struct command_result *handle_your_peer_storage(struct command *cmd,
 					           "Peer altered our data");
 
 
-                req = jsonrpc_request_start(cmd->plugin,
-                                    cmd,
-                                    "datastore",
-                                    after_datastore,
-                                    &forward_error,
-                                    NULL);
-
-                json_array_start(req->js, "key");
-                json_add_string(req->js, NULL, "latestbkp");
-                json_array_end(req->js);
-                json_add_hex(req->js, "hex", decoded_bkp,
-                             tal_bytelen(decoded_bkp));
-                json_add_string(req->js, "mode", "create-or-replace");
-
-                return send_outreq(cmd->plugin, req);
+		return jsonrpc_set_datastore_binary(cmd->plugin,
+					     	    cmd,
+					     	    "chanbackup/latestscb",
+					     	    decoded_bkp,
+					     	    "create-or-replace",
+					     	    NULL,
+					     	    NULL,
+					     	    NULL);
 	} else {
                         plugin_log(cmd->plugin, LOG_BROKEN,
                                    "Peer sent bad custom message for chanbackup!");
@@ -648,21 +616,17 @@ static struct command_result *handle_your_peer_storage(struct command *cmd,
         }
 }
 
-static struct command_result *after_latestbkp(struct command *cmd,
-					        const char *buf,
-					        const jsmntok_t *params,
+static struct command_result *after_latestscb(struct command *cmd,
+					        const u8 *res,
 					        void *cb_arg UNUSED)
 {
         u64 version;
 	u32 timestamp;
 	struct scb_chan **scb;
         struct json_stream *response;
-        const jsmntok_t *datastoretok = json_get_member(buf,
-                                                        params,
-                                                        "datastore");
         struct out_req *req;
 
-        if (datastoretok->size == 0) {
+        if (tal_bytelen(res) == 0) {
         	response = jsonrpc_stream_success(cmd);
 
 		json_add_string(response, "result",
@@ -670,13 +634,6 @@ static struct command_result *after_latestbkp(struct command *cmd,
 		return command_finished(cmd, response);
         }
 
-        const jsmntok_t *bkp = json_get_member(buf,
-                                               json_get_arr(datastoretok, 0),
-                                               "hex");
-
-        u8 *res = tal_hexdata(cmd,
-                              json_strdup(cmd, buf, bkp),
-                              bkp->end - bkp->start);
 	if (!fromwire_static_chan_backup(cmd,
                                          res,
                                          &version,
@@ -710,20 +667,14 @@ static struct command_result *json_restorefrompeer(struct command *cmd,
 				      const char *buf,
                                       const jsmntok_t *params)
 {
-	struct out_req *req;
-
 	if (!param(cmd, buf, params, NULL))
 		return command_param_failed();
 
-        req = jsonrpc_request_start(cmd->plugin,
-                                    cmd,
-                                    "listdatastore",
-                                    after_latestbkp,
-                                    &forward_error,
-                                    NULL);
-        json_add_string(req->js, "key", "latestbkp");
-
-	return send_outreq(cmd->plugin, req);
+	return jsonrpc_get_datastore_binary(cmd->plugin,
+				     	    cmd,
+				     	    "chanbackup/latestscb",
+				     	    after_latestscb,
+				     	    NULL);
 }
 
 static const char *init(struct plugin *p,
