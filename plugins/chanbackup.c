@@ -429,7 +429,7 @@ static struct command_result *after_listpeers(struct command *cmd,
 				cmd,
 				"sendcustommsg",
 				after_send_scb_single,
-				&forward_error,
+				after_send_their_peer_strg_nb,
 				info);
 
 			json_add_node_id(req->js, "node_id", node_id);
@@ -513,7 +513,7 @@ static struct command_result *json_connect(struct command *cmd,
                                     cmd,
                                     "sendcustommsg",
                                     after_send_scb,
-                                    &forward_error,
+                                    after_send_their_peer_strg_nb,
                                     node_id);
 
         json_add_node_id(req->js, "node_id", node_id);
