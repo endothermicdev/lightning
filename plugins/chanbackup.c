@@ -610,7 +610,7 @@ static struct command_result *handle_your_peer_storage(struct command *cmd,
 					     	    NULL,
 					     	    NULL);
 	} else {
-                        plugin_log(cmd->plugin, LOG_BROKEN,
+                        plugin_log(cmd->plugin, LOG_DBG,
                                    "Peer sent bad custom message for chanbackup!");
                         return command_hook_success(cmd);
         }
