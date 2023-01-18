@@ -563,6 +563,25 @@ static struct command_result *failed_peer_restore(struct command *cmd,
 	return command_hook_success(cmd);
 }
 
+static struct command_result *datastore_success(struct command *cmd,
+						const char *buf,
+						const jsmntok_t *result,
+						char *what)
+{
+	plugin_log(cmd->plugin, LOG_DBG, "datastore succeeded for %s", what);
+	return command_hook_success(cmd);
+}
+
+static struct command_result *datastore_failed(struct command *cmd,
+					       const char *buf,
+					       const jsmntok_t *result,
+					       char *what)
+{
+	plugin_log(cmd->plugin, LOG_DBG, "datastore failed for %s: %.*s",
+		   what, json_tok_full_len(result), json_tok_full(buf, result));
+	return command_hook_success(cmd);
+}
+
 static struct command_result *handle_your_peer_storage(struct command *cmd,
 					         const char *buf,
 					         const jsmntok_t *params)
@@ -593,9 +612,9 @@ static struct command_result *handle_your_peer_storage(struct command *cmd,
 								    	   &node_id)),
 						    payload_deserialise,
 						    "create-or-replace",
-						    NULL,
-						    NULL,
-						    NULL);
+					     	    datastore_success,
+					     	    datastore_failed,
+						    "Saving chanbackup/peers/");
 	} else if (fromwire_your_peer_storage(cmd, payload, &payload_deserialise)) {
 		plugin_log(cmd->plugin, LOG_DBG,
                            "Received peer_storage from peer.");
@@ -636,9 +655,9 @@ static struct command_result *handle_your_peer_storage(struct command *cmd,
 					     	    "chanbackup/latestscb",
 					     	    decoded_bkp,
 					     	    "create-or-replace",
-					     	    NULL,
-					     	    NULL,
-					     	    NULL);
+					     	    datastore_success,
+					     	    datastore_failed,
+						    "Saving latestscb");
 	} else {
                         plugin_log(cmd->plugin, LOG_DBG,
                                    "Peer sent bad custom message for chanbackup!");
