@@ -318,31 +318,31 @@ static void update_scb(struct plugin *p, struct scb_chan **channels)
 
 
 static struct command_result
-*after_send_their_peer_strg(struct command *cmd,
+*peer_after_send_their_peer_strg(struct command *cmd,
                             const char *buf,
                             const jsmntok_t *params,
                             void *cb_arg UNUSED)
 {
         plugin_log(cmd->plugin, LOG_DBG, "Sent their peer storage!");
-	return notification_handled(cmd);
+	return command_hook_success(cmd);
 }
 
 static struct command_result
-*after_send_their_peer_strg_nb(struct command *cmd,
+*peer_after_send_their_peer_strg_err(struct command *cmd,
                             const char *buf,
                             const jsmntok_t *params,
                             void *cb_arg UNUSED)
 {
         plugin_log(cmd->plugin, LOG_DBG, "Unable to send Peer storage!");
-	return notification_handled(cmd);
+	return command_hook_success(cmd);
 }
 
-static struct command_result *after_listdatastore(struct command *cmd,
-                                                  const u8 *hexdata,
-                                                  struct node_id *nodeid)
+static struct command_result *peer_after_listdatastore(struct command *cmd,
+						       const u8 *hexdata,
+						       struct node_id *nodeid)
 {
         if (tal_bytelen(hexdata) == 0)
-        	return notification_handled(cmd);
+        	return command_hook_success(cmd);
         struct out_req *req;
 
         u8 *payload = towire_your_peer_storage(cmd, hexdata);
@@ -353,8 +353,8 @@ static struct command_result *after_listdatastore(struct command *cmd,
         req = jsonrpc_request_start(cmd->plugin,
                                     cmd,
                                     "sendcustommsg",
-                                    after_send_their_peer_strg,
-                                    after_send_their_peer_strg_nb,
+                                    peer_after_send_their_peer_strg,
+                                    peer_after_send_their_peer_strg_err,
                                     NULL);
 
         json_add_node_id(req->js, "node_id", nodeid);
@@ -364,10 +364,10 @@ static struct command_result *after_listdatastore(struct command *cmd,
         return send_outreq(cmd->plugin, req);
 }
 
-static struct command_result *after_send_scb(struct command *cmd,
-                                             const char *buf,
-                                             const jsmntok_t *params,
-                                             struct node_id *nodeid)
+static struct command_result *peer_after_send_scb(struct command *cmd,
+						  const char *buf,
+						  const jsmntok_t *params,
+						  struct node_id *nodeid)
 {
         plugin_log(cmd->plugin, LOG_DBG, "Peer storage sent!");
 
@@ -378,8 +378,18 @@ static struct command_result *after_send_scb(struct command *cmd,
 					     	     type_to_string(tmpctx,
 							            struct node_id,
 							    	    nodeid)),
-				     	    after_listdatastore,
+				     	    peer_after_listdatastore,
 				     	    nodeid);
+}
+
+static struct command_result *peer_after_send_scb_failed(struct command *cmd,
+							 const char *buf,
+							 const jsmntok_t *params,
+							 struct node_id *nodeid)
+{
+        plugin_log(cmd->plugin, LOG_DBG, "Peer storage send failed %.*s!",
+		   json_tok_full_len(params), json_tok_full(buf, params));
+	return command_hook_success(cmd);
 }
 
 struct info {
@@ -392,6 +402,18 @@ static struct command_result *after_send_scb_single(struct command *cmd,
                                              struct info *info)
 {
         plugin_log(cmd->plugin, LOG_INFORM, "Peer storage sent!");
+	if (--info->idx != 0)
+		return command_still_pending(cmd);
+
+	return notification_handled(cmd);
+}
+
+static struct command_result *after_send_scb_single_fail(struct command *cmd,
+                                             const char *buf,
+                                             const jsmntok_t *params,
+                                             struct info *info)
+{
+        plugin_log(cmd->plugin, LOG_DBG, "Peer storage send failed!");
 	if (--info->idx != 0)
 		return command_still_pending(cmd);
 
@@ -429,7 +451,7 @@ static struct command_result *after_listpeers(struct command *cmd,
 				cmd,
 				"sendcustommsg",
 				after_send_scb_single,
-				after_send_their_peer_strg_nb,
+				after_send_scb_single_fail,
 				info);
 
 			json_add_node_id(req->js, "node_id", node_id);
@@ -495,25 +517,33 @@ static struct command_result *json_state_changed(struct command *cmd,
 }
 
 
-static struct command_result *json_connect(struct command *cmd,
-                                           const char *buf,
-                                           const jsmntok_t *params)
+/* We use the hook here, since we want to send data to peer before any
+ * reconnect messages (which might make it hang up!) */
+static struct command_result *peer_connected(struct command *cmd,
+					     const char *buf,
+					     const jsmntok_t *params)
 {
-	const jsmntok_t *nodeid = json_get_member(buf,
-                                                  params,
-                                                  "id");
-
-        struct node_id *node_id = tal(cmd, struct node_id);
-        json_to_node_id(buf, nodeid, node_id);
+	struct node_id *node_id = tal(cmd, struct node_id);
 	struct out_req *req;
 	u8 *scb = get_file_data(cmd->plugin);
         u8 *serialise_scb = towire_peer_storage(cmd, scb);
+	const char *err;
+
+	err = json_scan(cmd, buf, params,
+			"{peer:{id:%}}",
+			JSON_SCAN(json_to_node_id, node_id));
+	if (err) {
+		plugin_err(cmd->plugin,
+			   "peer_connected hook did not scan %s: %.*s",
+			   err, json_tok_full_len(params),
+			   json_tok_full(buf, params));
+	}
 
         req = jsonrpc_request_start(cmd->plugin,
                                     cmd,
                                     "sendcustommsg",
-                                    after_send_scb,
-                                    after_send_their_peer_strg_nb,
+                                    peer_after_send_scb,
+                                    peer_after_send_scb_failed,
                                     node_id);
 
         json_add_node_id(req->js, "node_id", node_id);
@@ -711,10 +741,6 @@ static const struct plugin_notification notifs[] = {
 		"channel_state_changed",
 		json_state_changed,
 	},
-	{
-		"connect",
-		json_connect,
-	},
 };
 
 static const struct plugin_hook hooks[] = {
@@ -722,6 +748,10 @@ static const struct plugin_hook hooks[] = {
                 "custommsg",
                 handle_your_peer_storage,
         },
+	{
+		"peer_connected",
+		peer_connected,
+	},
 };
 
 static const struct plugin_command commands[] = { {
