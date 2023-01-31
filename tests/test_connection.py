@@ -232,7 +232,7 @@ def test_remote_addr_port(node_factory, bitcoind):
 
     # if ip discovery would have been enabled, we would have send an updated
     # node_annoucement by now. Check we didn't...
-    assert l2.daemon.wait_for_log("Update our node_announcement for discovered address")
+    wait_for(lambda: l2.daemon.is_in_log("Update our node_announcement for discovered address"))
     info = l2.rpc.getinfo()
     assert len(info['address']) == 1
     assert info['address'][0]['type'] == 'ipv4'

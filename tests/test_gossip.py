@@ -316,13 +316,13 @@ def test_gossip_timestamp_filter(node_factory, bitcoind, chainparams):
     # 0x0101 = node_announcement
     # The order of node_announcements relative to others is undefined.
     types = Counter([m[0:4] for m in msgs])
-    assert types == Counter(['0100'] * 2 + ['0102'] * 4 + ['0101'] * 3)
+    assert types == Counter(['0100'] * 2 + ['0102'] * 4 + ['0101'] * 3 + ['0007'])
 
     # Now timestamp which doesn't overlap (gives nothing).
     msgs = l4.query_gossip('gossip_timestamp_filter',
                            genesis_blockhash,
                            '0', before_anything - backdate,
-                           filters=['0109', '0107', '0012'])
+                           filters=['0109', '0107', '0012', '0007'])
     assert msgs == []
 
     # Now choose range which will only give first update.
@@ -330,7 +330,7 @@ def test_gossip_timestamp_filter(node_factory, bitcoind, chainparams):
                            genesis_blockhash,
                            before_anything - backdate,
                            after_12 - before_anything + 1,
-                           filters=['0109', '0107', '0012'])
+                           filters=['0109', '0107', '0012', '0007'])
 
     # 0x0100 = channel_announcement
     # 0x0102 = channel_update
@@ -344,7 +344,7 @@ def test_gossip_timestamp_filter(node_factory, bitcoind, chainparams):
                            genesis_blockhash,
                            before_23 - backdate,
                            after_23 - before_23 + 1,
-                           filters=['0109', '0107', '0012'])
+                           filters=['0109', '0107', '0012', '0007'])
 
     # 0x0100 = channel_announcement
     # 0x0102 = channel_update
