@@ -662,17 +662,18 @@ def test_gossip_no_empty_announcements(node_factory, bitcoind, chainparams):
                              check=True,
                              timeout=TIMEOUT,
                              stdout=subprocess.PIPE).stdout.strip().decode()
+    filters = ['0109', '0107', '0012', '0007']
     assert l1.query_gossip('query_channel_range',
                            chainparams['chain_hash'],
                            0, 1000000,
-                           filters=['0109', '0107', '0012']) == ['0108'
-                                                                 # blockhash
-                                                                 + chainparams['chain_hash']
-                                                                 # first_blocknum, number_of_blocks, complete
-                                                                 + format(0, '08x') + format(1000000, '08x') + '01'
-                                                                 # encoded_short_ids
-                                                                 + format(len(encoded) // 2, '04x')
-                                                                 + encoded]
+                           filters=filters) == ['0108'
+                                                # blockhash
+                                                + chainparams['chain_hash']
+                                                # first_blocknum, number_of_blocks, complete
+                                                + format(0, '08x') + format(1000000, '08x') + '01'
+                                                # encoded_short_ids
+                                                + format(len(encoded) // 2, '04x')
+                                                + encoded]
 
     # If we reconnect, gossip will now flow.
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
@@ -746,11 +747,12 @@ def test_gossip_query_channel_range(node_factory, bitcoind, chainparams):
 
     assert block23 == block12 + 1
 
+    gossip_filters = ['0109', '0107', '0012', '0007']
     # Asks l4 for all channels, gets both.
     msgs = l4.query_gossip('query_channel_range',
                            chainparams['chain_hash'],
                            0, 1000000,
-                           filters=['0109', '0107', '0012'])
+                           filters=gossip_filters)
     encoded = subprocess.run(['devtools/mkencoded', '--scids', '00', scid12, scid23],
                              check=True,
                              timeout=TIMEOUT,
@@ -769,7 +771,7 @@ def test_gossip_query_channel_range(node_factory, bitcoind, chainparams):
     msgs = l4.query_gossip('query_channel_range',
                            genesis_blockhash,
                            0, block12,
-                           filters=['0109', '0107', '0012'])
+                           filters=gossip_filters)
     # reply_channel_range == 264
     assert msgs == ['0108'
                     # blockhash
@@ -783,7 +785,7 @@ def test_gossip_query_channel_range(node_factory, bitcoind, chainparams):
     msgs = l4.query_gossip('query_channel_range',
                            genesis_blockhash,
                            0, block12 + 1,
-                           filters=['0109', '0107', '0012'])
+                           filters=gossip_filters)
     encoded = subprocess.run(['devtools/mkencoded', '--scids', '00', scid12],
                              check=True,
                              timeout=TIMEOUT,
@@ -802,7 +804,7 @@ def test_gossip_query_channel_range(node_factory, bitcoind, chainparams):
     msgs = l4.query_gossip('query_channel_range',
                            genesis_blockhash,
                            0, block23,
-                           filters=['0109', '0107', '0012'])
+                           filters=gossip_filters)
     encoded = subprocess.run(['devtools/mkencoded', '--scids', '00', scid12],
                              check=True,
                              timeout=TIMEOUT,
@@ -821,7 +823,7 @@ def test_gossip_query_channel_range(node_factory, bitcoind, chainparams):
     msgs = l4.query_gossip('query_channel_range',
                            genesis_blockhash,
                            block12, block23 - block12 + 1,
-                           filters=['0109', '0107', '0012'])
+                           filters=gossip_filters)
     encoded = subprocess.run(['devtools/mkencoded', '--scids', '00', scid12, scid23],
                              check=True,
                              timeout=TIMEOUT,
@@ -840,7 +842,7 @@ def test_gossip_query_channel_range(node_factory, bitcoind, chainparams):
     msgs = l4.query_gossip('query_channel_range',
                            genesis_blockhash,
                            block23, 1,
-                           filters=['0109', '0107', '0012'])
+                           filters=gossip_filters)
     encoded = subprocess.run(['devtools/mkencoded', '--scids', '00', scid23],
                              check=True,
                              timeout=TIMEOUT,
@@ -859,7 +861,7 @@ def test_gossip_query_channel_range(node_factory, bitcoind, chainparams):
     msgs = l4.query_gossip('query_channel_range',
                            genesis_blockhash,
                            block23 + 1, 1000000,
-                           filters=['0109', '0107', '0012'])
+                           filters=gossip_filters)
     # reply_channel_range == 264
     assert msgs == ['0108'
                     # blockhash
@@ -876,7 +878,7 @@ def test_gossip_query_channel_range(node_factory, bitcoind, chainparams):
     msgs = l4.query_gossip('query_channel_range',
                            genesis_blockhash,
                            0, 1000000,
-                           filters=['0109', '0107', '0012'])
+                           filters=gossip_filters)
     # It should definitely have split
     l4.daemon.wait_for_log('reply_channel_range: splitting 0-1 of 2')
 
@@ -901,7 +903,7 @@ def test_gossip_query_channel_range(node_factory, bitcoind, chainparams):
     msgs = l4.query_gossip('query_channel_range',
                            genesis_blockhash,
                            1, 429496000,
-                           filters=['0109', '0107', '0012'])
+                           filters=gossip_filters)
     assert len(msgs) == 2
 
 
@@ -967,10 +969,11 @@ def test_query_short_channel_id(node_factory, bitcoind, chainparams):
                              timeout=TIMEOUT,
                              stdout=subprocess.PIPE).stdout.strip().decode()
 
+    gossip_filters = ['0109', '0107', '0012', '0007']
     msgs = l1.query_gossip('query_short_channel_ids',
                            chain_hash,
                            encoded,
-                           filters=['0109', '0107', '0012'])
+                           filters=gossip_filters)
 
     # Should just get the WIRE_REPLY_SHORT_CHANNEL_IDS_END = 262
     # (with chainhash and completeflag = 1)
@@ -999,7 +1002,7 @@ def test_query_short_channel_id(node_factory, bitcoind, chainparams):
     msgs = l4.query_gossip('query_short_channel_ids',
                            chain_hash,
                            encoded,
-                           filters=['0109', '0107', '0012'])
+                           filters=gossip_filters)
 
     assert len(msgs) == 6
     # 0x0100 = channel_announcement
@@ -1019,7 +1022,7 @@ def test_query_short_channel_id(node_factory, bitcoind, chainparams):
     msgs = l4.query_gossip('query_short_channel_ids',
                            chain_hash,
                            encoded,
-                           filters=['0109', '0107', '0012'])
+                           filters=gossip_filters)
 
     # Technically, this order could be different, but this matches code.
     assert len(msgs) == 10
@@ -1321,7 +1324,7 @@ def test_node_reannounce(node_factory, bitcoind, chainparams):
                            # Filter out gossip_timestamp_filter,
                            # channel_announcement and channel_updates.
                            # And pings.
-                           filters=['0109', '0107', '0102', '0100', '0012'])
+                           filters=['0109', '0107', '0102', '0100', '0012', '0007'])
 
     # May send its own announcement *twice*, since it always spams us.
     msgs = list(set(msgs))
@@ -1338,7 +1341,7 @@ def test_node_reannounce(node_factory, bitcoind, chainparams):
                             # Filter out gossip_timestamp_filter,
                             # channel_announcement and channel_updates.
                             # And pings.
-                            filters=['0109', '0107', '0102', '0100', '0012'])
+                            filters=['0109', '0107', '0102', '0100', '0012', '0007'])
 
     # May send its own announcement *twice*, since it always spams us.
     assert set(msgs) == set(msgs2)
@@ -1366,7 +1369,7 @@ def test_node_reannounce(node_factory, bitcoind, chainparams):
                             # Filter out gossip_timestamp_filter,
                             # channel_announcement and channel_updates.
                             # And pings.
-                            filters=['0109', '0107', '0102', '0100', '0012'])
+                            filters=['0109', '0107', '0102', '0100', '0012', '0007'])
     assert set(msgs) != set(msgs2)
 
 
@@ -1945,9 +1948,13 @@ def test_gossip_ratelimit(node_factory, bitcoind):
                           '{}@localhost:{}'.format(l3.info['id'], l3.port)],
                          check=True,
                          timeout=TIMEOUT, stdout=subprocess.PIPE).stdout
-    # The last message is the most recent channel update.
-    message = raw.decode('utf-8').split()[-1]
-    decoded = subprocess.run(['devtools/decodemsg', message],
+    # We expect to receive:
+    # Channel announcement
+    # Node announcement
+    # Channel update
+    # Peer storage blob
+    update = raw.decode('utf-8').split()[-2]
+    decoded = subprocess.run(['devtools/decodemsg', update],
                              check=True,
                              timeout=TIMEOUT,
                              stdout=subprocess.PIPE).stdout.decode('utf8')
@@ -1973,8 +1980,8 @@ def test_gossip_ratelimit(node_factory, bitcoind):
                           '{}@localhost:{}'.format(l3.info['id'], l3.port)],
                          check=True,
                          timeout=TIMEOUT, stdout=subprocess.PIPE).stdout
-    message = raw.decode('utf-8').split()[-1]
-    decoded = subprocess.run(['devtools/decodemsg', message],
+    update = raw.decode('utf-8').split()[-2]
+    decoded = subprocess.run(['devtools/decodemsg', update],
                              check=True,
                              timeout=TIMEOUT,
                              stdout=subprocess.PIPE).stdout.decode('utf8')
