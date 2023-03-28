@@ -221,7 +221,8 @@ static u32 gossip_store_compact_offline(struct routing_state *rstate)
 		}
 
 		/* Don't write out old tombstones */
-		if (fromwire_peektype(msg) == WIRE_GOSSIP_STORE_DELETE_CHAN) {
+		if (fromwire_peektype(msg) == WIRE_GOSSIP_STORE_DELETE_CHAN ||
+		    fromwire_peektype(msg) == WIRE_GOSSIP_STORE_DELETE_NODE) {
 			deleted++;
 			tal_free(msg);
 			continue;
@@ -888,6 +889,19 @@ u32 gossip_store_load(struct routing_state *rstate, struct gossip_store *gs)
 			}
 			stats[2]++;
 			break;
+		case WIRE_GOSSIP_STORE_DELETE_NODE: {
+			struct node_id node_id;
+			if (!fromwire_gossip_store_delete_node(tmpctx, &node_id)) {
+				bad = "Bad node_dead";
+				goto badmsg;
+			}
+			/* We do our own refcounts, so this should be redundant */
+			if (get_node(rstate, &node_id)) {
+				bad = "Node is not dead yet!";
+				goto badmsg;
+			}
+			break;
+		}
 		default:
 			bad = "Unknown message";
 			goto badmsg;

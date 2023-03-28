@@ -517,6 +517,8 @@ static void remove_chan_from_node(struct routing_state *rstate,
 		gossip_store_delete(rstate->gs,
 				    &node->bcast,
 				    WIRE_NODE_ANNOUNCEMENT);
+		u8 *deadmsg = towire_gossip_store_delete_node(tmpctx, &node->id);
+		gossip_store_add(rstate->gs, deadmsg, 0, false, false, false, NULL);
 		tal_free(node);
 		return;
 	}
