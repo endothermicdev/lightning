@@ -18,7 +18,7 @@
 
 #define GOSSIP_STORE_TEMP_FILENAME "gossip_store.tmp"
 /* We write it as major version 0, minor version 12 */
-#define GOSSIP_STORE_VER ((0 << 5) | 12)
+#define GOSSIP_STORE_VER ((0 << 5) | 13)
 
 struct gossip_store {
 	/* This is false when we're loading */
@@ -111,7 +111,7 @@ static bool append_msg(int fd, const u8 *msg, u32 timestamp,
  */
 static bool can_upgrade(u8 oldversion)
 {
-	return oldversion == 9 || oldversion == 10;
+	return oldversion == 9 || oldversion == 10 || oldversion == 12;
 }
 
 static bool upgrade_field(u8 oldversion,
