@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 from urllib.request import urlopen
 import logging
 import copy
+from enum import Enum
 
 
 logging.basicConfig(
@@ -186,6 +187,81 @@ def remove_dir(target: str) -> bool:
     except PermissionError:
         print(f"Permission denied removing dir: {target}")
     return False
+
+
+class Source(Enum):
+    DIRECTORY = 1
+    LOCAL_REPO = 2
+    GITHUB_REPO = 3
+    OTHER_URL = 4
+    UNKNOWN = 5
+
+    @classmethod
+    def get_type(cls, source: str):
+        if Path(os.path.realpath(source)).exists():
+            if os.path.isdir(os.path.realpath(source)):
+                # returns 0 if git repository
+                proc = run(['git', '-C', source, 'rev-parse'],
+                           cwd=os.path.realpath(source), stdout=PIPE,
+                           stderr=PIPE, text=True, timeout=3)
+                if proc.returncode == 0:
+                    return cls(2)
+                return cls(1)
+        if 'github.com' in source.lower():
+            return cls(3)
+        return cls(5)
+
+
+class SourceDir():
+    """Structure to search source contents."""
+    def __init__(self, location):
+        self.location = location
+        self.name = Path(location).name
+
+    def from_local_dir(path):
+        new = SourceDir(path)
+        contents = []
+        for c in os.listdir(path):
+            fullpath = Path(path) / c
+            if os.path.isdir(fullpath):
+                contents.append(SourceDir(fullpath))
+            else:
+                contents.append(SourceFile(fullpath))
+        new.contents = contents
+        return new
+
+    def find(self, name):
+        assert isinstance(name, str)
+        if not hasattr(self, 'contents'):
+            return None
+        for c in self.contents:
+            if c.name.lower() == name.lower():
+                return c.name
+        return None
+
+    def __repr__(self):
+        return f"<SourceDir: {self.name} ({self.location})>"
+
+    def __eq__(self, compared):
+        if isinstance(compared, str):
+            return self.name == compared
+        else:
+            return self.name == compared
+
+
+class SourceFile():
+    def __init__(self, location):
+        self.location = location
+        self.name = Path(location).name
+
+    def __repr__(self):
+        return f"<SourceFile: {self.name} ({self.location})>"
+
+    def __eq__(self, compared):
+        if isinstance(compared, str):
+            return self.name == compared
+        else:
+            return self.name == compared
 
 
 class Config():
@@ -376,6 +452,7 @@ nodejs.add_dependency_file('package.json')
 
 INSTALLERS = {python3pip, python3pip3, nodejs}
 
+
 def help_alias(targets: list):
     if len(targets) == 0:
         parser.print_help(sys.stdout)
@@ -384,7 +461,7 @@ def help_alias(targets: list):
         sys.exit(1)
 
 
-def _search_repo(name: str, url: str) -> Union[InstInfo, None]:
+def _search_remote_repo(name: str, url: str) -> Union[InstInfo, None]:
     """look in given repo and, if found, populate InstInfo"""
     # Remove api subdomain, subdirectories, etc.
     repo = url.split('/')
@@ -418,6 +495,7 @@ def _search_repo(name: str, url: str) -> Union[InstInfo, None]:
                             api_url)
         if not MyPlugin.get_inst_details():
             return None
+        MyPlugin.type = Source.get_type(url)
         return MyPlugin
     # Repo contains multiple plugins?
     for x in json.loads(r.read().decode()):
@@ -441,7 +519,52 @@ def _search_repo(name: str, url: str) -> Union[InstInfo, None]:
                 logging.debug((f'Found plugin in {url}, but missing install '
                               'details'))
                 return None
+            MyPlugin.type = Source.get_type(url)
             return MyPlugin
+    return None
+
+
+def _search_directory(name: str, source: str) -> Union[InstInfo, None]:
+    """look in local dir and, if found, populate InstInfo"""
+    assert os.path.isdir(source)
+
+    local = SourceDir.from_local_dir(source)
+    if local.find(name):
+        print(f"found name {local.find(name)} in {local}")
+        inst = InstInfo(local.name, source, None)
+        # FIXME: extract entry, etc.
+        # FIXME: case insensitive, lookup name pattern, etc....
+        if name in local.contents:
+            print(f"found entry {name} in {local}!")
+            print("entry path:", str(Path(local.location) / name))
+            inst.entry = str(Path(local.location) / local.find(name))
+            print(inst.entry)
+            inst.url = source
+            inst.type = Source.get_type(source)
+            return inst
+        else:
+            print(f"DID NOT FIND ENTRY {name} in {local}!")
+    return None
+
+
+def _search_local_repo(name: str, source: str) -> Union[InstInfo, None]:
+    """look in local git repo and, if found, populate InstInfo"""
+    assert os.path.exists(source)
+    contents = {}
+    # FIXME: Pass in tag or commit hash
+    ver = 'HEAD'
+    git_call = ['git', '-C', source, 'ls-tree', '--full-tree', '-r',
+                '--name-only', ver]
+    proc = run(git_call, stdout=PIPE, stderr=PIPE, text=True, timeout=5)
+    if proc.returncode != 0:
+        return None
+    for file in proc.stdout.splitlines():
+        # FIXME: just sanity checking
+        # exit(1)
+        print(file)
+        if file.split('/')[-1].lower() == name.lower():
+            # FIXME: actually want to match directory name, not files!
+            return InstInfo(file.split('/')[-1], source, None)
     return None
 
 
@@ -459,8 +582,11 @@ def _install_plugin(src: InstInfo) -> bool:
     if Path(clone_path).exists():
         logging.debug(f'{clone_path} already exists - deleting')
         shutil.rmtree(clone_path)
+    if src.type == Source.DIRECTORY:
+        logging.debug(f"copying local directory contents from {src.url}")
+        shutil.copytree(src.url, clone_path)
     # clone git repository to /tmp/reckless-...
-    if ('http' in src.repo[:4]) or ('github.com' in src.repo):
+    elif ('http' in src.repo[:4]) or ('github.com' in src.repo):
         if 'github.com' in src.repo:
             url = f"{GITHUB_COM}" + src.repo.split("github.com")[-1]
         else:
@@ -581,20 +707,51 @@ def uninstall(plugin_name: str):
 def search(plugin_name: str) -> InstInfo:
     """searches plugin index for plugin"""
     ordered_repos = RECKLESS_SOURCES
+
+    def is_local_dir(dir: str) -> bool:
+        maybe_path = os.path.realpath(dir)
+        if Path(maybe_path).exists():
+            if os.path.isdir(maybe_path):
+                return True
+        return False
+
+    def is_github_repo(repo: str) -> bool:
+        if 'github.com' in repo:
+            return True
+        return False
+
     for r in RECKLESS_SOURCES:
-        # Search repos named after the plugin first
-        if r.split('/')[-1].lower() == plugin_name.lower():
-            ordered_repos.remove(r)
-            ordered_repos.insert(0, r)
+        # Search repos named after the plugin before collections
+        if Source.get_type(r) == Source.GITHUB_REPO:
+            if r.split('/')[-1].lower() == plugin_name.lower():
+                ordered_repos.remove(r)
+                ordered_repos.insert(0, r)
+    # Check locally before reaching out to remote repositories
+    for d in RECKLESS_SOURCES:
+        if Source.get_type(d) in [Source.DIRECTORY, Source.LOCAL_REPO]:
+            ordered_repos.remove(d)
+            ordered_repos.insert(0, d)
     for r in ordered_repos:
-        p = _search_repo(plugin_name, r)
-        if p:
-            print(f"found {p.name} in repo: {p.repo}")
-            logging.debug(f"entry: {p.entry}")
-            if p.subdir:
-                logging.debug(f'sub-directory: {p.subdir}')
-            return p
-    print(f'Unable to locate source for plugin {plugin_name}')
+        # if not is_github_repo(r):
+        srctype = Source.get_type(r)
+        if srctype == Source.UNKNOWN:
+            logging.debug(f'cannot search {srctype} {r}')
+            continue
+        if srctype is Source.DIRECTORY:
+            p = _search_directory(plugin_name, r)
+        elif srctype is Source.LOCAL_REPO:
+            p = _search_local_repo(plugin_name, r)
+        elif srctype is Source.GITHUB_REPO:
+            p = _search_remote_repo(plugin_name, r)
+        else:
+            print(f'Unable to locate source for plugin {plugin_name}')
+            return
+        print(f"found {p.name} in repo: {p.repo}")
+        print(f"type: {srctype}") # DELETE
+        logging.debug(f"entry: {p.entry}")
+        if p.subdir:
+            logging.debug(f'sub-directory: {p.subdir}')
+        return p
 
 
 class RPCError(Exception):
@@ -769,7 +926,10 @@ def add_source(src: str):
     if Path(maybe_path).exists():
         # FIXME: This should handle either a directory or a git repo
         if os.path.isdir(maybe_path):
-            print(f'local sources not yet supported: {src}')
+            # print(f'local sources not yet supported: {src}')
+            my_file = Config(path=str(get_sources_file()),
+                             default_text='https://github.com/lightningd/plugins')
+            my_file.editConfigFile(src, None)
     elif 'github.com' in src:
         my_file = Config(path=str(get_sources_file()),
                          default_text='https://github.com/lightningd/plugins')
