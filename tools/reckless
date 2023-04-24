@@ -107,9 +107,9 @@ class Installer:
 
 
 class InstInfo:
-    def __init__(self, name, url, git_url):
+    def __init__(self, name, location, git_url):
         self.name = name
-        self.repo = url         # Used for 'git clone'
+        self.source_loc = location         # Used for 'git clone'
         self.git_url = git_url  # API access for github repos
         self.entry = None
         self.deps = None
@@ -117,7 +117,7 @@ class InstInfo:
         self.commit = None
 
     def __repr__(self):
-        return (f'InstInfo({self.name}, {self.repo}, {self.git_url}, '
+        return (f'InstInfo({self.name}, {self.source_loc}, {self.git_url}, '
                 f'{self.entry}, {self.deps})')
 
     def get_inst_details(self) -> bool:
@@ -511,9 +511,9 @@ def _search_remote_repo(name: str, url: str) -> Union[InstInfo, None]:
             else:
                 MyPlugin = InstInfo(x['name'], x['html_url'], x['git_url'])
                 # Submodule URLs are appended with /tree/<commit hash>
-                if MyPlugin.repo.split('/')[-2] == 'tree':
-                    MyPlugin.commit = MyPlugin.repo.split('/')[-1]
-                    MyPlugin.repo = MyPlugin.repo.split('/tree/')[0]
+                if MyPlugin.source_loc.split('/')[-2] == 'tree':
+                    MyPlugin.commit = MyPlugin.source_loc.split('/')[-1]
+                    MyPlugin.source_loc = MyPlugin.source_loc.split('/tree/')[0]
                     logging.debug(f'repo using commit: {MyPlugin.commit}')
             if not MyPlugin.get_inst_details():
                 logging.debug((f'Found plugin in {url}, but missing install '
@@ -586,11 +586,11 @@ def _install_plugin(src: InstInfo) -> bool:
         logging.debug(f"copying local directory contents from {src.url}")
         shutil.copytree(src.url, clone_path)
     # clone git repository to /tmp/reckless-...
-    elif ('http' in src.repo[:4]) or ('github.com' in src.repo):
-        if 'github.com' in src.repo:
-            url = f"{GITHUB_COM}" + src.repo.split("github.com")[-1]
+    elif ('http' in src.source_loc[:4]) or ('github.com' in src.source_loc):
+        if 'github.com' in src.source_loc:
+            url = f"{GITHUB_COM}" + src.source_loc.split("github.com")[-1]
         else:
-            url = src.repo
+            url = src.source_loc
         git = Popen(['git', 'clone', url, str(clone_path)],
                     stdout=PIPE, stderr=PIPE)
         git.wait()
@@ -672,7 +672,7 @@ def install(plugin_name: str):
     assert isinstance(plugin_name, str)
     src = search(plugin_name)
     if src:
-        logging.debug(f'Retrieving {src.name} from {src.repo}')
+        logging.debug(f'Retrieving {src.name} from {src.source_loc}')
         if not _install_plugin(src):
             print('installation aborted')
             sys.exit(1)
@@ -746,11 +746,12 @@ def search(plugin_name: str) -> InstInfo:
         else:
             print(f'Unable to locate source for plugin {plugin_name}')
             return
-        print(f"found {p.name} in repo: {p.repo}")
-        print(f"type: {srctype}") # DELETE
-        logging.debug(f"entry: {p.entry}")
-        if p.subdir:
-            logging.debug(f'sub-directory: {p.subdir}')
+        if p:
+            print(f"found {p.name} in repo: {p.source_loc}")
+            logging.debug(f"entry: {p.entry}")
+            print(f"type: {srctype}")  # DELETE
+            if p.subdir:
+                logging.debug(f'sub-directory: {p.subdir}')
         return p
 
 
@@ -926,7 +927,6 @@ def add_source(src: str):
     if Path(maybe_path).exists():
         # FIXME: This should handle either a directory or a git repo
         if os.path.isdir(maybe_path):
-            # print(f'local sources not yet supported: {src}')
             my_file = Config(path=str(get_sources_file()),
                              default_text='https://github.com/lightningd/plugins')
             my_file.editConfigFile(src, None)
