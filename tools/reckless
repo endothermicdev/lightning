@@ -797,39 +797,39 @@ def uninstall(plugin_name: str):
         print(f"{inst.name} uninstalled successfully.")
 
 
-def search(plugin_name: str) -> InstInfo:
+def search(plugin_name: str) -> Union[InstInfo, None]:
     """searches plugin index for plugin"""
     ordered_sources = RECKLESS_SOURCES
 
-    for r in RECKLESS_SOURCES:
+    for src in RECKLESS_SOURCES:
         # Search repos named after the plugin before collections
-        if Source.get_type(r) == Source.GITHUB_REPO:
-            if r.split('/')[-1].lower() == plugin_name.lower():
-                ordered_sources.remove(r)
-                ordered_sources.insert(0, r)
+        if Source.get_type(src) == Source.GITHUB_REPO:
+            if src.split('/')[-1].lower() == plugin_name.lower():
+                ordered_sources.remove(src)
+                ordered_sources.insert(0, src)
     # Check locally before reaching out to remote repositories
-    for d in RECKLESS_SOURCES:
-        if Source.get_type(d) in [Source.DIRECTORY, Source.LOCAL_REPO]:
-            ordered_sources.remove(d)
-            ordered_sources.insert(0, d)
+    for src in RECKLESS_SOURCES:
+        if Source.get_type(src) in [Source.DIRECTORY, Source.LOCAL_REPO]:
+            ordered_sources.remove(src)
+            ordered_sources.insert(0, src)
     for source in ordered_sources:
+        # FIXME: handle OTHER_URL condition
         srctype = Source.get_type(source)
-        if srctype == Source.UNKNOWN:
+        if srctype in [Source.UNKNOWN, Source.OTHER_URL]:
             logging.debug(f'cannot search {srctype} {source}')
             continue
         if srctype in [Source.DIRECTORY, Source.LOCAL_REPO,
                        Source.GITHUB_REPO]:
-            p = _source_search(plugin_name, source)
-        else:
-            print(f'Unable to locate source for plugin {plugin_name}')
-            return
-        if p:
-            print(f"found {p.name} in source: {p.source_loc}")
-            logging.debug(f"entry: {p.entry}")
-            if p.subdir:
-                logging.debug(f'sub-directory: {p.subdir}')
-            return p
+            found = _source_search(plugin_name, source)
+        if not found:
+            continue
+        print(f"found {found.name} in source: {found.source_loc}")
+        logging.debug(f"entry: {found.entry}")
+        if found.subdir:
+            logging.debug(f'sub-directory: {found.subdir}')
+        return found
     logging.debug("Search exhausted all sources")
+    return None
 
 
 class RPCError(Exception):
