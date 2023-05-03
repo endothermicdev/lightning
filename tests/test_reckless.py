@@ -140,15 +140,18 @@ def test_sources(node_factory):
 def test_search(node_factory):
     """add additional sources and search through them"""
     n = get_reckless_node(node_factory)
-    r = reckless([f"--network={NETWORK}", "search", "testplugpass"], dir=n.lightning_dir)
+    r = reckless([f"--network={NETWORK}", "search", "testplugpass"],
+                 dir=n.lightning_dir)
     assert r.returncode == 0
-    assert 'found testplugpass in repo: https://github.com/lightningd/plugins' in r.stdout
+    assert ('found testplugpass in source: '
+            'https://github.com/lightningd/plugins') in r.stdout
 
 
 def test_install(node_factory):
     """test search, git clone, and installation to folder."""
     n = get_reckless_node(node_factory)
-    r = reckless([f"--network={NETWORK}", "-v", "install", "testplugpass"], dir=n.lightning_dir)
+    r = reckless([f"--network={NETWORK}", "-v", "install", "testplugpass"],
+                 dir=n.lightning_dir)
     assert r.returncode == 0
     assert 'dependencies installed successfully' in r.stdout
     assert 'plugin installed:' in r.stdout
@@ -186,4 +189,4 @@ def test_disable_enable(node_factory):
                    'active': True, 'dynamic': True}
     time.sleep(1)
     print(n.rpc.plugin_list()['plugins'])
-    assert(test_plugin in n.rpc.plugin_list()['plugins'])
+    assert test_plugin in n.rpc.plugin_list()['plugins']
