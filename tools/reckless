@@ -970,7 +970,7 @@ def load_config(reckless_dir: Union[str, None] = None,
 
 
 def get_sources_file() -> str:
-    return Path(RECKLESS_DIR) / '.sources'
+    return str(Path(RECKLESS_DIR) / '.sources')
 
 
 def sources_from_file() -> list:
@@ -983,7 +983,7 @@ def sources_from_file() -> list:
         return read_sources
 
 
-def loadSources() -> list:
+def load_sources() -> list:
     """Look for the repo sources file."""
     sources_file = get_sources_file()
     # This would have been created if possible
@@ -1125,7 +1125,7 @@ if __name__ == '__main__':
     LIGHTNING_CONFIG = args.conf
     RECKLESS_CONFIG = load_config(reckless_dir=RECKLESS_DIR,
                                   network=NETWORK)
-    RECKLESS_SOURCES = loadSources()
+    RECKLESS_SOURCES = load_sources()
     API_GITHUB_COM = 'https://api.github.com'
     GITHUB_COM = 'https://github.com'
     # Used for blackbox testing to avoid hitting github servers
