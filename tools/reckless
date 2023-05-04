@@ -115,12 +115,12 @@ class Installer:
 
 
 class InstInfo:
-    def __init__(self, name, location, git_url):
+    def __init__(self, name: str, location: str, git_url: str):
         self.name = name
-        self.source_loc = location         # Used for 'git clone'
-        self.git_url = git_url  # API access for github repos
+        self.source_loc = str(location)     # Used for 'git clone'
+        self.git_url = git_url              # API access for github repos
         self.srctype = Source.get_type(location)
-        self.entry = None  # relative to source_loc or subdir
+        self.entry = None                   # relative to source_loc or subdir
         self.deps = None
         self.subdir = None
         self.commit = None
@@ -130,8 +130,7 @@ class InstInfo:
                 f'{self.entry}, {self.deps}, {self.subdir})')
 
     def get_inst_details(self) -> bool:
-        # FIXME: Note - this will replace the original get_inst_details_github
-        """Search a local directory for plugin install details.
+        """Search the source_loc for plugin install details.
         This may be necessary if a contents api is unavailable.
         Extracts entrypoint and dependencies if searchable, otherwise
         matches a directory to the plugin name and stops."""
@@ -244,8 +243,9 @@ class Source(Enum):
 
 class SourceDir():
     """Structure to search source contents."""
-    def __init__(self, location: str, srctype=None, name=None, relative=None):
-        self.location = location
+    def __init__(self, location: str, srctype: Source = None, name: str = None,
+                 relative: str = None):
+        self.location = str(location)
         if name:
             self.name = name
         else:
@@ -259,7 +259,6 @@ class SourceDir():
         """populates contents of the directory at least one level"""
         if self.prepopulated:
             return
-        # FIXME: Get type and add switch
         if not self.srctype:
             self.srctype = Source.get_type(self.location)
         # logging.debug(f"populating {self.srctype} {self.location}")
@@ -304,8 +303,8 @@ class SourceDir():
 
 
 class SourceFile():
-    def __init__(self, location):
-        self.location = location
+    def __init__(self, location: str):
+        self.location = str(location)
         self.name = Path(location).name
 
     def __repr__(self):
@@ -621,14 +620,10 @@ def help_alias(targets: list):
 def _source_search(name: str, source: str) -> Union[InstInfo, None]:
     """Identify source type, retrieve contents, and populate InstInfo
     if the relevant contents are found."""
-    # Get type
-    # src_type = Source.get_type(source)
     root_dir = SourceDir(source)
-    target = InstInfo(name, root_dir.location, None)
-    # FIXME: merge with get_inst_details
-    if target.get_inst_details():
-        return target
-    # logging.debug(f"could not complete InstInfo with {root_dir.location}")
+    source = InstInfo(name, root_dir.location, None)
+    if source.get_inst_details():
+        return source
     return None
 
 
@@ -642,7 +637,7 @@ def _git_clone(src: InstInfo, dest: Union[PosixPath, str]) -> bool:
     else:
         return False
     git = run(['git', 'clone', source, str(dest)], stdout=PIPE, stderr=PIPE,
-              text=True, timeout=60)
+              text=True, check=False, timeout=60)
     if git.returncode != 0:
         for line in git.stderr:
             logging.debug(line)
