@@ -740,7 +740,6 @@ def _install_plugin(src: InstInfo) -> InstInfo:
     except TimeoutExpired:
         # If the plugin is still running, it's assumed to be okay.
         returncode = 0
-        pass
     if returncode != 0:
         logging.debug("plugin testing error:")
         for line in test_log:
