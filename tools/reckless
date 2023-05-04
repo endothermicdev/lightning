@@ -278,7 +278,7 @@ class SourceDir():
             else:
                 c.relative = str(Path(self.relative) / c.name)
 
-    def find(self, name: str, ftype=None) -> str:
+    def find(self, name: str, ftype: type = None) -> str:
         """Match a SourceFile or SourceDir to the provided name
         (case insentive) and return its filename."""
         assert isinstance(name, str)
@@ -297,8 +297,10 @@ class SourceDir():
     def __eq__(self, compared):
         if isinstance(compared, str):
             return self.name == compared
-        else:
-            return self.name == compared
+        if isinstance(compared, SourceDir):
+            return (self.name == compared.name and
+                    self.location == compared.location)
+        return False
 
 
 class SourceFile():
@@ -312,11 +314,13 @@ class SourceFile():
     def __eq__(self, compared):
         if isinstance(compared, str):
             return self.name == compared
-        else:
-            return self.name == compared
+        if isinstance(compared, SourceFile):
+            return (self.name == compared.name and
+                    self.location == compared.location)
+        return False
 
 
-def populate_local_dir(path) -> list:
+def populate_local_dir(path: str) -> list:
     assert Path(os.path.realpath(path)).exists()
     contents = []
     for c in os.listdir(path):
