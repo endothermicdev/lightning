@@ -850,13 +850,12 @@ class CLIError(Exception):
         return f'CLIError({self.code} {self.message})'
 
 
-def lightning_cli(*args, timeout=15) -> dict:
-    # CLI commands will be added to any necessary options
+def lightning_cli(*cli_args, timeout: int = 15) -> dict:
+    """Interfaces with Core-Lightning via CLI using any configured options."""
     cmd = LIGHTNING_CLI_CALL.copy()
-    cmd.extend(args)
-    clncli = Popen(cmd, stdout=PIPE, stderr=PIPE)
-    clncli.wait(timeout=timeout)
-    out = clncli.stdout.read().decode()
+    cmd.extend(cli_args)
+    clncli = run(cmd, stdout=PIPE, stderr=PIPE, check=False, timeout=timeout)
+    out = clncli.stdout.decode()
     if len(out) > 0 and out[0] == '{':
         # If all goes well, a json object is typically returned
         out = json.loads(out.replace('\n', ''))
@@ -871,8 +870,9 @@ def lightning_cli(*args, timeout=15) -> dict:
         raise CLIError(out['code'], out['message'])
     if clncli.returncode == 2:
         # RPC not available - lightningd not running or using alternate config
-        err = clncli.stderr.read().decode()
+        err = clncli.stderr.decode()
         raise RPCError(err)
+    raise Exception
 
 
 def enable(plugin_name: str):
