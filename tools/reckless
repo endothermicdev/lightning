@@ -669,12 +669,12 @@ def _install_plugin(src: InstInfo) -> InstInfo:
     elif src.srctype in [Source.LOCAL_REPO, Source.GITHUB_REPO,
                          Source.OTHER_URL]:
         # clone git repository to /tmp/reckless-...
-        if not _git_clone(src, clone_path):
+        if not _git_clone(src, plugin_path):
             return False
     # FIXME: Validate path was cloned successfully.
     # Depending on how we accessed the original source, there may be install
     # details missing. Searching the cloned repo makes sure we have it.
-    cloned_src = _source_search(src.name, str(clone_path))
+    cloned_src = _source_search(src.name, str(plugin_path))
     if not cloned_src:
         logging.debug('failed to find plugin after cloning repo.')
         return False
