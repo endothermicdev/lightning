@@ -236,6 +236,8 @@ class Source(Enum):
                 return cls(1)
         if 'github.com' in source.lower():
             return cls(3)
+        if 'http://' in source.lower() or 'https://' in source.lower():
+            return cls(4)
         return cls(5)
 
 
@@ -809,13 +811,12 @@ def search(plugin_name: str) -> Union[InstInfo, None]:
             ordered_sources.remove(src)
             ordered_sources.insert(0, src)
     for source in ordered_sources:
-        # FIXME: handle OTHER_URL condition
         srctype = Source.get_type(source)
-        if srctype in [Source.UNKNOWN, Source.OTHER_URL]:
+        if srctype == Source.UNKNOWN:
             logging.debug(f'cannot search {srctype} {source}')
             continue
         if srctype in [Source.DIRECTORY, Source.LOCAL_REPO,
-                       Source.GITHUB_REPO]:
+                       Source.GITHUB_REPO, Source.OTHER_URL]:
             found = _source_search(plugin_name, source)
         if not found:
             continue
@@ -1003,7 +1004,7 @@ def add_source(src: str):
             my_file = Config(path=str(get_sources_file()),
                              default_text=default_repo)
             my_file.editConfigFile(src, None)
-    elif 'github.com' in src:
+    elif 'github.com' in src or 'http://' in src or 'https://' in src:
         my_file = Config(path=str(get_sources_file()),
                          default_text='https://github.com/lightningd/plugins')
         my_file.editConfigFile(src, None)
