@@ -949,6 +949,11 @@ static struct migration dbmigrations[] = {
     {NULL, migrate_invalid_last_tx_psbts},
     {SQL("ALTER TABLE channels ADD channel_type BLOB DEFAULT NULL;"), NULL},
     {NULL, migrate_fill_in_channel_type},
+    {SQL("ALTER TABLE channels ADD remote_feerate_base INTEGER;"), NULL},
+    {SQL("ALTER TABLE channels ADD remote_feerate_ppm INTEGER;"), NULL},
+    {SQL("ALTER TABLE channels ADD remote_cltv_expiry_delta INTEGER;"), NULL},
+    {SQL("ALTER TABLE channels ADD remote_htlc_maximum_msat BIGINT;"), NULL},
+    {SQL("ALTER TABLE channels ADD remote_htlc_minimum_msat BIGINT;"), NULL},
 };
 
 /**
