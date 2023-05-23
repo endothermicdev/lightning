@@ -130,3 +130,12 @@ msgdata,gossipd_used_local_channel_update,scid,short_channel_id,
 # Tell gossipd we have verified a new public IP by the remote_addr feature
 msgtype,gossipd_discovered_ip,3009
 msgdata,gossipd_discovered_ip,discovered_ip,wireaddr,
+
+# Tell lightningd we received channel update info for a local channel
+msgtype,gossipd_remote_channel_update,3010
+msgdata,gossipd_remote_channel_update,scid,short_channel_id,
+msgdata,gossipd_remote_channel_update,remote_feerate_base,u32,
+msgdata,gossipd_remote_channel_update,remote_feerate_ppm,u32,
+msgdata,gossipd_remote_channel_update,remote_cltv_expiry_delta,u16,
+msgdata,gossipd_remote_channel_update,remote_htlc_minimum_msat,u64,
+msgdata,gossipd_remote_channel_update,remote_htlc_maximum_msat,u64,
