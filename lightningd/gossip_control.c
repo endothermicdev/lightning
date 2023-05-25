@@ -183,6 +183,10 @@ static unsigned gossip_msg(struct subd *gossip, const u8 *msg, const int *fds)
 	case WIRE_GOSSIPD_GOT_LOCAL_CHANNEL_UPDATE:
 		handle_local_channel_update(gossip->ld, msg);
 		break;
+	case WIRE_GOSSIPD_REMOTE_CHANNEL_UPDATE:
+		/* Please stash in database for us! */
+		tal_free(msg);
+		break;
 	}
 	return 0;
 }

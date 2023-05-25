@@ -325,6 +325,7 @@ struct chan *next_chan(const struct node *node, struct chan_map_iter *i);
 u8 *handle_channel_update(struct routing_state *rstate, const u8 *update TAKES,
 			  struct peer *peer,
 			  struct short_channel_id *unknown_scid,
+			  u8** ld_add_update_msg,
 			  bool force);
 
 /* Returns NULL if all OK, otherwise an error for the peer which sent.
@@ -369,6 +370,7 @@ bool routing_add_channel_update(struct routing_state *rstate,
 				const u8 *update TAKES,
 				u32 index,
 				struct peer *peer,
+				u8** ld_add_update_msg,
 				bool ignore_timestamp,
 				bool force_spam_flag,
 				bool force_zombie_flag);

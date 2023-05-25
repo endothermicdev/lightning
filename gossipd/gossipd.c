@@ -257,7 +257,8 @@ static const u8 *handle_channel_announcement_msg(struct daemon *daemon,
 	return NULL;
 }
 
-static u8 *handle_channel_update_msg(struct peer *peer, const u8 *msg)
+static u8 *handle_channel_update_msg(struct peer *peer, const u8 *msg,
+				     u8 **ld_add_update_msg)
 {
 	struct short_channel_id unknown_scid;
 	/* Hand the channel_update to the routing code */
@@ -265,7 +266,7 @@ static u8 *handle_channel_update_msg(struct peer *peer, const u8 *msg)
 
 	unknown_scid.u64 = 0;
 	err = handle_channel_update(peer->daemon->rstate, msg, peer,
-				    &unknown_scid, false);
+				    &unknown_scid, ld_add_update_msg, false);
 	if (err)
 		return err;
 
@@ -572,7 +573,11 @@ static void handle_recv_gossip(struct daemon *daemon, const u8 *outermsg)
 		err = handle_channel_announcement_msg(peer->daemon, peer, msg);
 		goto handled_msg;
 	case WIRE_CHANNEL_UPDATE:
-		err = handle_channel_update_msg(peer, msg);
+		u8* ld_add_update_msg = talz(peer->daemon->rstate, u8);
+		err = handle_channel_update_msg(peer, msg, &ld_add_update_msg);
+		/* Pass private updates to lightningd to log in database */
+		if (*ld_add_update_msg)
+			daemon_conn_send(daemon->master, take(ld_add_update_msg));
 		goto handled_msg;
 	case WIRE_NODE_ANNOUNCEMENT:
 		err = handle_node_announce(peer, msg);
@@ -964,7 +969,7 @@ static void inject_gossip(struct daemon *daemon, const u8 *msg)
 						  NULL, NULL);
 		break;
 	case WIRE_CHANNEL_UPDATE:
-		errmsg = handle_channel_update(daemon->rstate, goss,
+		errmsg = handle_channel_update(daemon->rstate, goss, NULL,
 					       NULL, NULL, true);
 		break;
 	default:

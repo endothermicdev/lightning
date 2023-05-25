@@ -976,10 +976,10 @@ bool routing_add_channel_announcement(struct routing_state *rstate,
 	/* If we had private updates, they'll immediately create the channel. */
 	if (private_updates[0])
 		routing_add_channel_update(rstate, take(private_updates[0]), 0,
-					   peer, false, false, false);
+					   peer, NULL, false, false, false);
 	if (private_updates[1])
 		routing_add_channel_update(rstate, take(private_updates[1]), 0,
-					   peer, false, false, false);
+					   peer, NULL, false, false, false);
 
 	/* Now we can finish cleanup of gossip store, so there's no window where
 	 * channel (or nodes) vanish. */
@@ -1185,7 +1185,7 @@ static void process_pending_channel_update(struct daemon *daemon,
 	if (!cupdate)
 		return;
 
-	err = handle_channel_update(rstate, cupdate, peer, NULL, false);
+	err = handle_channel_update(rstate, cupdate, peer, NULL, NULL, false);
 	if (err) {
 		/* FIXME: We could send this error back to peer if != NULL */
 		status_peer_debug(peer ? &peer->id : NULL,
@@ -1322,6 +1322,7 @@ bool routing_add_channel_update(struct routing_state *rstate,
 				const u8 *update TAKES,
 				u32 index,
 				struct peer *peer,
+				u8** ld_add_update_msg,
 				bool ignore_timestamp,
 				bool force_spam_flag,
 				bool force_zombie_flag)
@@ -1501,6 +1502,15 @@ bool routing_add_channel_update(struct routing_state *rstate,
 			hc->bcast.index = index;
 			hc->rgraph.index = index;
 		}
+		/* give lightningd the channel's inbound info to store to db */
+		if (ld_add_update_msg)
+			*ld_add_update_msg = towire_gossipd_remote_channel_update(NULL,
+						&chan->scid,
+						fee_base_msat,
+						fee_proportional_millionths,
+						expiry,
+						htlc_minimum,
+						htlc_maximum);
 		return true;
 	}
 
@@ -1637,6 +1647,7 @@ static const struct node_id *get_channel_owner(struct routing_state *rstate,
 u8 *handle_channel_update(struct routing_state *rstate, const u8 *update TAKES,
 			  struct peer *peer,
 			  struct short_channel_id *unknown_scid,
+			  u8** ld_add_update_msg,
 			  bool force)
 {
 	u8 *serialized;
@@ -1737,8 +1748,8 @@ u8 *handle_channel_update(struct routing_state *rstate, const u8 *update TAKES,
 		return warn;
 	}
 
-	routing_add_channel_update(rstate, take(serialized), 0, peer, force,
-				   false, false);
+	routing_add_channel_update(rstate, take(serialized), 0, peer,
+				   ld_add_update_msg, force, false, false);
 	return NULL;
 }
 

@@ -590,7 +590,8 @@ static void apply_update(struct daemon *daemon,
 			take(update);
 	}
 
-	msg = handle_channel_update(daemon->rstate, update, peer, NULL, true);
+	msg = handle_channel_update(daemon->rstate, update, peer, NULL,
+				    NULL, true);
 	if (msg)
 		status_failed(STATUS_FAIL_INTERNAL_ERROR,
 			      "%s: rejected local channel update %s: %s",
