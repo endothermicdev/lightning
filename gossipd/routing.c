@@ -3,6 +3,7 @@
 #include <bitcoin/script.h>
 #include <ccan/array_size/array_size.h>
 #include <ccan/tal/str/str.h>
+#include <common/daemon_conn.h>
 #include <common/gossip_store.h>
 #include <common/memleak.h>
 #include <common/pseudorand.h>
@@ -1501,6 +1502,18 @@ bool routing_add_channel_update(struct routing_state *rstate,
 			hc->bcast.index = index;
 			hc->rgraph.index = index;
 		}
+		if (!peer)
+			return true;
+		/* give lightningd the channel's inbound info to store to db */
+		u8* remote_update;
+		remote_update = towire_gossipd_remote_channel_update(NULL,
+					&chan->scid,
+					fee_base_msat,
+					fee_proportional_millionths,
+					expiry,
+					htlc_minimum,
+					htlc_maximum);
+		daemon_conn_send(peer->daemon->master, take(remote_update));
 		return true;
 	}
 

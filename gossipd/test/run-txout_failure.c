@@ -30,6 +30,9 @@ bool cupdate_different(struct gossip_store *gs UNNEEDED,
 		       const struct half_chan *hc UNNEEDED,
 		       const u8 *cupdate UNNEEDED)
 { fprintf(stderr, "cupdate_different called!\n"); abort(); }
+/* Generated stub for daemon_conn_send */
+void daemon_conn_send(struct daemon_conn *dc UNNEEDED, const u8 *msg UNNEEDED)
+{ fprintf(stderr, "daemon_conn_send called!\n"); abort(); }
 /* Generated stub for gossip_store_add */
 u64 gossip_store_add(struct gossip_store *gs UNNEEDED, const u8 *gossip_msg UNNEEDED,
 		     u32 timestamp UNNEEDED, bool zombie UNNEEDED, bool spam UNNEEDED,
@@ -92,6 +95,9 @@ void status_fmt(enum log_level level UNNEEDED,
 		const char *fmt UNNEEDED, ...)
 
 { fprintf(stderr, "status_fmt called!\n"); abort(); }
+/* Generated stub for towire_gossipd_remote_channel_update */
+u8 *towire_gossipd_remote_channel_update(const tal_t *ctx UNNEEDED, const struct short_channel_id *scid UNNEEDED, u32 remote_feerate_base UNNEEDED, u32 remote_feerate_ppm UNNEEDED, u16 remote_cltv_expiry_delta UNNEEDED, struct amount_msat remote_htlc_minimum_msat UNNEEDED, struct amount_msat remote_htlc_maximum_msat UNNEEDED)
+{ fprintf(stderr, "towire_gossipd_remote_channel_update called!\n"); abort(); }
 /* Generated stub for towire_warningfmt */
 u8 *towire_warningfmt(const tal_t *ctx UNNEEDED,
 		      const struct channel_id *channel UNNEEDED,
