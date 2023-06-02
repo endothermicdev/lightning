@@ -145,6 +145,23 @@ const u8 *get_channel_update(struct channel *channel)
 	return channel->channel_update;
 }
 
+static void handle_private_update_data(struct lightningd *ld, const u8 *msg)
+{
+	struct short_channel_id scid;
+	u32 remote_feerate_base;
+	u32 remote_feerate_ppm;
+	u16 remote_cltv_expiry_delta;
+	struct amount_msat remote_htlc_minimum_msat;
+	struct amount_msat remote_htlc_maximum_msat;
+
+	fromwire_gossipd_remote_channel_update(msg, &scid,
+					       &remote_feerate_base,
+					       &remote_feerate_ppm,
+					       &remote_cltv_expiry_delta,
+					       &remote_htlc_minimum_msat,
+					       &remote_htlc_maximum_msat);
+}
+
 static unsigned gossip_msg(struct subd *gossip, const u8 *msg, const int *fds)
 {
 	enum gossipd_wire t = fromwire_peektype(msg);
@@ -185,6 +202,7 @@ static unsigned gossip_msg(struct subd *gossip, const u8 *msg, const int *fds)
 		break;
 	case WIRE_GOSSIPD_REMOTE_CHANNEL_UPDATE:
 		/* Please stash in database for us! */
+		handle_private_update_data(gossip->ld, msg);
 		tal_free(msg);
 		break;
 	}
