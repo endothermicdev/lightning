@@ -145,6 +145,26 @@ const u8 *get_channel_update(struct channel *channel)
 	return channel->channel_update;
 }
 
+static void set_channel_remote_update(struct lightningd *ld,
+				      struct channel *channel,
+				      u32 remote_feerate_base,
+				      u32 remote_feerate_ppm,
+				      u16 remote_cltv_expiry_delta,
+				      struct amount_msat remote_htlc_minimum_msat,
+				      struct amount_msat remote_htlc_maximum_msat)
+{
+	log_debug(ld->log, "updating channel %s with inbound settings",
+		  type_to_string(tmpctx, struct short_channel_id,
+			         channel->scid));\
+	channel->remote_feerate_base = remote_feerate_base;
+	channel->remote_feerate_ppm = remote_feerate_ppm;
+	channel->remote_cltv_expiry_delta = remote_cltv_expiry_delta;
+	channel->remote_htlc_maximum_msat = remote_htlc_minimum_msat;
+	channel->remote_htlc_minimum_msat = remote_htlc_maximum_msat;
+
+	wallet_channel_save(ld->wallet, channel);
+}
+
 static void handle_private_update_data(struct lightningd *ld, const u8 *msg)
 {
 	struct short_channel_id scid;
@@ -153,6 +173,7 @@ static void handle_private_update_data(struct lightningd *ld, const u8 *msg)
 	u16 remote_cltv_expiry_delta;
 	struct amount_msat remote_htlc_minimum_msat;
 	struct amount_msat remote_htlc_maximum_msat;
+	struct channel *channel;
 
 	fromwire_gossipd_remote_channel_update(msg, &scid,
 					       &remote_feerate_base,
@@ -160,6 +181,19 @@ static void handle_private_update_data(struct lightningd *ld, const u8 *msg)
 					       &remote_cltv_expiry_delta,
 					       &remote_htlc_minimum_msat,
 					       &remote_htlc_maximum_msat);
+
+	channel = any_channel_by_scid(ld, &scid, true);
+	if (!channel) {
+		log_unusual(ld->log, "could not find channel for peer's "
+			    "channel update");
+		return;
+	}
+	set_channel_remote_update(ld, channel,
+				  remote_feerate_base,
+				  remote_feerate_ppm,
+				  remote_cltv_expiry_delta,
+				  remote_htlc_minimum_msat,
+				  remote_htlc_maximum_msat);
 }
 
 static unsigned gossip_msg(struct subd *gossip, const u8 *msg, const int *fds)
