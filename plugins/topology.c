@@ -535,6 +535,40 @@ static struct amount_msat peer_capacity(const struct gossmap *gossmap,
 	return capacity;
 }
 
+static struct command_result *json_getinboundcapacity(struct command *cmd,
+						      const char *buffer,
+						      const jsmntok_t *params)
+{
+	struct json_stream *response;
+	// struct gossmap_node *me;
+	// struct gossmap *gossmap;
+	const jsmntok_t *nodelist;
+
+	if (!param(cmd, buffer, params,
+		   p_req("nodelist", param_array, &nodelist),
+		   NULL))
+		return command_param_failed();
+
+	response = jsonrpc_stream_success(cmd);
+	json_array_start(response, "nodes");
+
+	/* run peercapacity on each node, return list*/
+
+	size_t i;
+	const jsmntok_t *t;
+	struct node_id node_id;
+	json_for_each_arr(i, t, nodelist) {
+		json_to_node_id(buffer, t, &node_id);
+		plugin_log(cmd->plugin, LOG_DBG, "checking inbound for %s",
+			   type_to_string(tmpctx, struct node_id, &node_id));
+		/* json_object_start(response, NULL);
+		 * gossmap_node_get_id(gossmap, peer, &node_id); */
+	}
+	json_array_end(response);
+	return command_finished(cmd, response);
+
+}
+
 static struct command_result *json_listincoming(struct command *cmd,
 						const char *buffer,
 						const jsmntok_t *params)
@@ -668,6 +702,13 @@ static const struct plugin_command commands[] = {
 		"Used by invoice code to select peers for routehints",
 		json_listincoming,
 	},
+	{
+		"getinboundcapacity",
+		"network",
+		"List the incoming capacities from of a list of channels",
+		"Used for invoice routehints and for bolt12",
+		json_getinboundcapacity,
+	}
 };
 
 int main(int argc, char *argv[])
