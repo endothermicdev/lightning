@@ -263,6 +263,13 @@ struct channel {
 	/* Lease commited max part per thousandth channel fee (ppm * 1000) */
 	u16 lease_chan_max_ppt;
 
+	/* incoming fee rates from peer */
+	u32 remote_feerate_base, remote_feerate_ppm;
+	/* incoming cltv delta from peer */
+	u16 remote_cltv_expiry_delta;
+	/* peer's limits on min/max incoming htlc size */
+	struct amount_msat remote_htlc_minimum_msat, remote_htlc_maximum_msat;
+
 	/* Latest channel_update, for use in error messages. */
 	u8 *channel_update;
 
@@ -345,7 +352,12 @@ struct channel *new_channel(struct peer *peer, u64 dbid,
 			    u32 lease_chan_max_msat,
 			    u16 lease_chan_max_ppt,
 			    struct amount_msat htlc_minimum_msat,
-			    struct amount_msat htlc_maximum_msat);
+			    struct amount_msat htlc_maximum_msat,
+			    u32 remote_feerate_base,
+			    u32 remote_feerate_ppm,
+			    u16 remote_cltv_expiry_delta,
+			    struct amount_msat remote_htlc_minimum_msat,
+			    struct amount_msat remote_htlc_maximum_msat);
 
 /* new_inflight - Create a new channel_inflight for a channel */
 struct channel_inflight *

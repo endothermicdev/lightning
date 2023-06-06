@@ -388,7 +388,12 @@ struct channel *new_channel(struct peer *peer, u64 dbid,
 			    u32 lease_chan_max_msat,
 			    u16 lease_chan_max_ppt,
 			    struct amount_msat htlc_minimum_msat,
-			    struct amount_msat htlc_maximum_msat)
+			    struct amount_msat htlc_maximum_msat,
+			    u32 remote_feerate_base,
+			    u32 remote_feerate_ppm,
+			    u16 remote_cltv_expiry_delta,
+			    struct amount_msat remote_htlc_minimum_msat,
+			    struct amount_msat remote_htlc_maximum_msat)
 {
 	struct channel *channel = tal(peer->ld, struct channel);
 	struct amount_msat htlc_min, htlc_max;
@@ -497,6 +502,11 @@ struct channel *new_channel(struct peer *peer, u64 dbid,
 	channel->lease_commit_sig = tal_steal(channel, lease_commit_sig);
 	channel->lease_chan_max_msat = lease_chan_max_msat;
 	channel->lease_chan_max_ppt = lease_chan_max_ppt;
+	channel->remote_feerate_base = remote_feerate_base;
+	channel->remote_feerate_ppm = remote_feerate_ppm;
+	channel->remote_cltv_expiry_delta = remote_cltv_expiry_delta;
+	channel->remote_htlc_minimum_msat = remote_htlc_minimum_msat;
+	channel->remote_htlc_maximum_msat = remote_htlc_maximum_msat;
 	channel->blockheight_states = dup_height_states(channel, height_states);
 	channel->channel_update = NULL;
 
