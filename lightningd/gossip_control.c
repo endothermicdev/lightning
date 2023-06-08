@@ -7,6 +7,7 @@
 #include <common/json_stream.h>
 #include <common/type_to_string.h>
 #include <gossipd/gossipd_wiregen.h>
+#include <gossipd/priv_update.h>
 #include <hsmd/capabilities.h>
 #include <lightningd/bitcoind.h>
 #include <lightningd/chaintopology.h>
@@ -167,33 +168,23 @@ static void set_channel_remote_update(struct lightningd *ld,
 
 static void handle_private_update_data(struct lightningd *ld, const u8 *msg)
 {
-	struct short_channel_id scid;
-	u32 remote_feerate_base;
-	u32 remote_feerate_ppm;
-	u16 remote_cltv_expiry_delta;
-	struct amount_msat remote_htlc_minimum_msat;
-	struct amount_msat remote_htlc_maximum_msat;
 	struct channel *channel;
+	struct remote_priv_update update;
 
-	fromwire_gossipd_remote_channel_update(msg, &scid,
-					       &remote_feerate_base,
-					       &remote_feerate_ppm,
-					       &remote_cltv_expiry_delta,
-					       &remote_htlc_minimum_msat,
-					       &remote_htlc_maximum_msat);
+	fromwire_gossipd_remote_channel_update(msg, &update);
 
-	channel = any_channel_by_scid(ld, &scid, true);
+	channel = any_channel_by_scid(ld, &update.scid, true);
 	if (!channel) {
 		log_unusual(ld->log, "could not find channel for peer's "
 			    "channel update");
 		return;
 	}
 	set_channel_remote_update(ld, channel,
-				  remote_feerate_base,
-				  remote_feerate_ppm,
-				  remote_cltv_expiry_delta,
-				  remote_htlc_minimum_msat,
-				  remote_htlc_maximum_msat);
+				  update.fee_base,
+				  update.fee_ppm,
+				  update.cltv_delta,
+				  update.htlc_minimum_msat,
+				  update.htlc_maximum_msat);
 }
 
 static unsigned gossip_msg(struct subd *gossip, const u8 *msg, const int *fds)

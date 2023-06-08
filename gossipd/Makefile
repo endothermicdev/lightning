@@ -5,6 +5,7 @@ GOSSIPD_HEADERS_WSRC := gossipd/gossipd_wiregen.h \
 	gossipd/gossip_store_wiregen.h			\
 	gossipd/gossipd.h				\
 	gossipd/gossip_store.h				\
+	gossipd/priv_update.h				\
 	gossipd/queries.h				\
 	gossipd/gossip_generation.h			\
 	gossipd/routing.h				\

@@ -12,6 +12,7 @@
 #include <common/route.h>
 #include <gossipd/broadcast.h>
 #include <gossipd/gossip_store.h>
+#include <gossipd/priv_update.h>
 #include <wire/onion_wire.h>
 #include <wire/wire.h>
 

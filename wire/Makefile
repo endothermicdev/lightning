@@ -13,7 +13,8 @@ WIRE_HEADERS :=	wire/onion_defs.h		\
 		wire/channel_type_wiregen.h	\
 		wire/bolt12$(EXP)_printgen.h	\
 		wire/peer$(EXP)_printgen.h	\
-		wire/onion$(EXP)_printgen.h
+		wire/onion$(EXP)_printgen.h	\
+		gossipd/priv_update.h
 
 # We don't include peer_printgen/onion_printgen or bolt12 here since most don't need it.
 WIRE_SRC := wire/wire_sync.c			\
@@ -24,7 +25,8 @@ WIRE_SRC := wire/wire_sync.c			\
 		wire/towire.c			\
 		wire/peer$(EXP)_wiregen.c	\
 		wire/channel_type_wiregen.c	\
-		wire/onion$(EXP)_wiregen.c	
+		wire/onion$(EXP)_wiregen.c	\
+		gossipd/priv_update.c
 
 WIRE_BOLT12_SRC := wire/bolt12$(EXP)_wiregen.c
 

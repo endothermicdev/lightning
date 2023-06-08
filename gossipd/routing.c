@@ -15,6 +15,7 @@
 #include <gossipd/gossip_store_wiregen.h>
 #include <gossipd/gossipd.h>
 #include <gossipd/gossipd_wiregen.h>
+#include <gossipd/priv_update.h>
 #include <gossipd/routing.h>
 
 #ifndef SUPERVERBOSE
@@ -1505,15 +1506,16 @@ bool routing_add_channel_update(struct routing_state *rstate,
 		if (!peer)
 			return true;
 		/* give lightningd the channel's inbound info to store to db */
-		u8* remote_update;
-		remote_update = towire_gossipd_remote_channel_update(NULL,
-					&chan->scid,
-					fee_base_msat,
-					fee_proportional_millionths,
-					expiry,
-					htlc_minimum,
-					htlc_maximum);
-		daemon_conn_send(peer->daemon->master, take(remote_update));
+		struct remote_priv_update remote_update;
+		u8* msg;
+		remote_update.scid = chan->scid;
+		remote_update.fee_base = fee_base_msat;
+		remote_update.fee_ppm = fee_proportional_millionths;
+		remote_update.cltv_delta = expiry;
+		remote_update.htlc_minimum_msat = htlc_minimum;
+		remote_update.htlc_maximum_msat = htlc_maximum;
+		msg = towire_gossipd_remote_channel_update(NULL, &remote_update);
+		daemon_conn_send(peer->daemon->master, take(msg));
 		return true;
 	}
 
