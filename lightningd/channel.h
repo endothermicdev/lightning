@@ -6,6 +6,7 @@
 #include <common/scb_wiregen.h>
 #include <common/tx_roles.h>
 #include <common/utils.h>
+#include <gossipd/priv_update.h>
 #include <lightningd/channel_state.h>
 #include <wallet/wallet.h>
 
@@ -269,6 +270,7 @@ struct channel {
 	u16 remote_cltv_expiry_delta;
 	/* peer's limits on min/max incoming htlc size */
 	struct amount_msat remote_htlc_minimum_msat, remote_htlc_maximum_msat;
+	struct priv_channel_update * priv_update;
 
 	/* Latest channel_update, for use in error messages. */
 	u8 *channel_update;
