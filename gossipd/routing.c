@@ -1508,6 +1508,7 @@ bool routing_add_channel_update(struct routing_state *rstate,
 		/* give lightningd the channel's inbound info to store to db */
 		struct remote_priv_update remote_update;
 		u8* msg;
+		remote_update.source_node = peer->id;
 		remote_update.scid = chan->scid;
 		remote_update.fee_base = fee_base_msat;
 		remote_update.fee_ppm = fee_proportional_millionths;

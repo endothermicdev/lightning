@@ -179,6 +179,7 @@ static void handle_private_update_data(struct lightningd *ld, const u8 *msg)
 			    "channel update");
 		return;
 	}
+	/* FIXME: validate channel belongs to node/peer */
 	set_channel_remote_update(ld, channel,
 				  update.fee_base,
 				  update.fee_ppm,
