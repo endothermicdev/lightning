@@ -553,6 +553,42 @@ static const struct json_command addgossip_command = {
 };
 AUTODATA(json_command, &addgossip_command);
 
+static struct command_result *json_listprivateinbound(struct command *cmd,
+						      const char *buffer,
+						      const jsmntok_t boj UNNEEDED,
+						      const jsmntok_t params)
+{
+	struct node_id *peer_id;
+	struct peer *peer;
+	struct channel *c, **channels;
+	struct json_stream *response;
+
+	response = json_stream_success(cmd);
+	json_array_start(response, "channels");
+
+	channels = tal_arr(tmpctx, struct channel *, 0);
+	struct peer_node_id_map_iter it;
+
+	for (peer = peer_node_id_map_first(cmd->ld->peers, &it);
+	     peer;
+	     peer = peer_node_id_map_next(cmd->ld->peers, &it)) {
+		/* json_add_peerchannels(cmd->ld, response, peer); */
+		list_for_each(&peer->channels, c, list){
+
+		}
+	}
+		
+}
+
+static const struct json_command listprivateinbound_command = {
+	"listprivateinbound",
+	"channels",
+	json_listprivateinbound,
+	"Called by plugin to create route hints from incoming private channels",
+};
+
+AUTODATA(json_command, &listprivateinbound_command);
+
 #if DEVELOPER
 static struct command_result *
 json_dev_set_max_scids_encode_size(struct command *cmd,
