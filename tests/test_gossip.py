@@ -2294,3 +2294,22 @@ def test_channel_resurrection(node_factory, bitcoind):
     for l in gs.stdout.decode().splitlines():
         if "ZOMBIE" in l:
             assert ("DELETED" in l)
+
+
+@pytest.mark.developer("needs --dev-fast-gossip")
+def test_gossip_listprivateinbound(node_factory, bitcoind):
+    """Check that remote private channel update parameters are properly captured
+    by the jsonrpc.
+    """
+    l1, l2 = node_factory.get_nodes(2)
+
+    l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
+    scid, _ = l1.fundchannel(l2, 10**6, None, False)
+    bitcoind.generate_block(5)
+
+    l1.wait_channel_active(scid)
+    l2.wait_channel_active(scid)
+
+    l2.rpc.setchannel(l1.info['id'], feebase=11)
+    wait_for(lambda: sum([c['base_fee_millisatoshi'] for c in l1.rpc.listchannels()['channels']]) == 12)
+    print(l1.rpc.listprivateinbound())
