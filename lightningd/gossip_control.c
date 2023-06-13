@@ -153,13 +153,14 @@ static void set_channel_remote_update(struct lightningd *ld,
 	log_debug(ld->log, "updating channel %s with inbound settings",
 		  type_to_string(tmpctx, struct short_channel_id,
 			         channel->scid));
-	if (!channel->priv_update)
-		channel->priv_update = tal(channel, struct remote_priv_update);
-	channel->priv_update.fee_base = update.fee_base;
-	channel->priv_update.fee_ppm = update.fee_ppm;
-	channel->priv_update.cltv_delta = update.cltv_delta;
-	channel->priv_update.htlc_minimum_msat = update.htlc_minimum_msat;
-	channel->priv_update.htlc_maximum_msat = update.htlc_maximum_msat;
+	if (!channel->private_update)
+		channel->private_update = tal(channel, struct remote_priv_update);
+	channel->private_update->source_node = update->source_node;
+	channel->private_update->fee_base = update->fee_base;
+	channel->private_update->fee_ppm = update->fee_ppm;
+	channel->private_update->cltv_delta = update->cltv_delta;
+	channel->private_update->htlc_minimum_msat = update->htlc_minimum_msat;
+	channel->private_update->htlc_maximum_msat = update->htlc_maximum_msat;
 
 	wallet_channel_save(ld->wallet, channel);
 }
@@ -178,7 +179,7 @@ static void handle_private_update_data(struct lightningd *ld, const u8 *msg)
 		return;
 	}
 	/* FIXME: validate channel belongs to node/peer */
-	set_channel_remote_update(ld, channel, update);
+	set_channel_remote_update(ld, channel, &update);
 }
 
 static unsigned gossip_msg(struct subd *gossip, const u8 *msg, const int *fds)

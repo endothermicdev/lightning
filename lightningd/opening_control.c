@@ -226,12 +226,7 @@ wallet_commit_channel(struct lightningd *ld,
 			      0, NULL, 0, 0, /* No leases on v1s */
 			      ld->config.htlc_minimum_msat,
 			      ld->config.htlc_maximum_msat,
-			      /* FIXME: Insert real values for remote side */
-			      0,
-			      0,
-			      0,
-			      AMOUNT_MSAT(0),
-			      AMOUNT_MSAT(0));
+			      NULL);
 
 	/* Now we finally put it in the database. */
 	wallet_channel_insert(ld->wallet, channel);
@@ -1459,12 +1454,7 @@ static struct channel *stub_chan(struct command *cmd,
 			      0, NULL, 0, 0, /* No leases on v1s */
 			      ld->config.htlc_minimum_msat,
 			      ld->config.htlc_maximum_msat,
-			      /* FIXME: Insert real values for remote side */
-			      0,
-			      0,
-			      0,
-			      AMOUNT_MSAT(0),
-			      AMOUNT_MSAT(0));
+			      NULL);
 
 	return channel;
 }
