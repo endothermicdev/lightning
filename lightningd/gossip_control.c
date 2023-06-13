@@ -148,19 +148,13 @@ const u8 *get_channel_update(struct channel *channel)
 
 static void set_channel_remote_update(struct lightningd *ld,
 				      struct channel *channel,
-				      struct remote_priv_update* update)
+				      struct remote_priv_update* update TAKES)
 {
 	log_debug(ld->log, "updating channel %s with inbound settings",
 		  type_to_string(tmpctx, struct short_channel_id,
 			         channel->scid));
-	if (!channel->private_update)
-		channel->private_update = tal(channel, struct remote_priv_update);
-	channel->private_update->source_node = update->source_node;
-	channel->private_update->fee_base = update->fee_base;
-	channel->private_update->fee_ppm = update->fee_ppm;
-	channel->private_update->cltv_delta = update->cltv_delta;
-	channel->private_update->htlc_minimum_msat = update->htlc_minimum_msat;
-	channel->private_update->htlc_maximum_msat = update->htlc_maximum_msat;
+	tal_free(channel->private_update);
+	channel->private_update = tal_steal(channel, update);
 
 	wallet_channel_save(ld->wallet, channel);
 }
@@ -168,18 +162,19 @@ static void set_channel_remote_update(struct lightningd *ld,
 static void handle_private_update_data(struct lightningd *ld, const u8 *msg)
 {
 	struct channel *channel;
-	struct remote_priv_update update;
+	struct remote_priv_update *update;
 
-	fromwire_gossipd_remote_channel_update(msg, &update);
-
-	channel = any_channel_by_scid(ld, &update.scid, true);
+	update = tal(tmpctx, struct remote_priv_update);
+	fromwire_gossipd_remote_channel_update(msg, update);
+	channel = any_channel_by_scid(ld, &update->scid, true);
 	if (!channel) {
 		log_unusual(ld->log, "could not find channel for peer's "
 			    "channel update");
 		return;
 	}
+
 	/* FIXME: validate channel belongs to node/peer */
-	set_channel_remote_update(ld, channel, &update);
+	set_channel_remote_update(ld, channel, update);
 }
 
 static unsigned gossip_msg(struct subd *gossip, const u8 *msg, const int *fds)
@@ -562,7 +557,7 @@ static struct command_result *json_listprivateinbound(struct command *cmd,
 		return command_param_failed();
 
 	response = json_stream_success(cmd);
-	json_array_start(response, "private channels");
+	json_array_start(response, "private_channels");
 
 	/* channels = tal_arr(tmpctx, struct channel *, 0); */
 	struct peer_node_id_map_iter it;
@@ -572,14 +567,16 @@ static struct command_result *json_listprivateinbound(struct command *cmd,
 	     peer = peer_node_id_map_next(cmd->ld->peers, &it)) {
 		/* json_add_peerchannels(cmd->ld, response, peer); */
 		list_for_each(&peer->channels, c, list) {
-			json_object_start(response, "peer");
 			if (c->private_update) {
+				json_object_start(response, NULL);
 				/* FIXME: return the details */
 				json_add_short_channel_id(response,
 							  "short_channel_id",
 							  &c->private_update->scid);
+				json_add_u32(response, "cltv_delta",
+					     c->private_update->cltv_delta);
+				json_object_end(response);
 			}
-			json_object_end(response);
 		}
 	}
 	json_array_end(response);
