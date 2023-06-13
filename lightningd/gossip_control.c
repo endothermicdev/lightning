@@ -549,29 +549,41 @@ AUTODATA(json_command, &addgossip_command);
 
 static struct command_result *json_listprivateinbound(struct command *cmd,
 						      const char *buffer,
-						      const jsmntok_t boj UNNEEDED,
-						      const jsmntok_t params)
+						      const jsmntok_t *obj UNNEEDED,
+						      const jsmntok_t *params)
 {
-	struct node_id *peer_id;
+	/* struct node_id *peer_id; */
 	struct peer *peer;
-	struct channel *c, **channels;
+	/* struct channel *c, **channels; */
+	struct channel *c;
 	struct json_stream *response;
 
-	response = json_stream_success(cmd);
-	json_array_start(response, "channels");
+	if (!param(cmd, buffer, params, NULL))
+		return command_param_failed();
 
-	channels = tal_arr(tmpctx, struct channel *, 0);
+	response = json_stream_success(cmd);
+	json_array_start(response, "private channels");
+
+	/* channels = tal_arr(tmpctx, struct channel *, 0); */
 	struct peer_node_id_map_iter it;
 
 	for (peer = peer_node_id_map_first(cmd->ld->peers, &it);
 	     peer;
 	     peer = peer_node_id_map_next(cmd->ld->peers, &it)) {
 		/* json_add_peerchannels(cmd->ld, response, peer); */
-		list_for_each(&peer->channels, c, list){
-
+		list_for_each(&peer->channels, c, list) {
+			json_object_start(response, "peer");
+			if (c->private_update) {
+				/* FIXME: return the details */
+				json_add_short_channel_id(response,
+							  "short_channel_id",
+							  &c->private_update->scid);
+			}
+			json_object_end(response);
 		}
 	}
-		
+	json_array_end(response);
+	return command_success(cmd, response);
 }
 
 static const struct json_command listprivateinbound_command = {
@@ -579,6 +591,8 @@ static const struct json_command listprivateinbound_command = {
 	"channels",
 	json_listprivateinbound,
 	"Called by plugin to create route hints from incoming private channels",
+	false,
+	NULL
 };
 
 AUTODATA(json_command, &listprivateinbound_command);
