@@ -573,8 +573,16 @@ static struct command_result *json_listprivateinbound(struct command *cmd,
 				json_add_short_channel_id(response,
 							  "short_channel_id",
 							  &c->private_update->scid);
+				json_add_u32(response, "fee_base",
+					     c->private_update->fee_base);
+				json_add_u32(response, "fee_ppm",
+					     c->private_update->fee_ppm);
 				json_add_u32(response, "cltv_delta",
 					     c->private_update->cltv_delta);
+				json_add_amount_msat(response, "htlc_minimum_msat",
+						     c->private_update->htlc_minimum_msat);
+				json_add_amount_msat(response, "htlc_maximum_msat",
+						     c->private_update->htlc_maximum_msat);
 				json_object_end(response);
 			}
 		}
