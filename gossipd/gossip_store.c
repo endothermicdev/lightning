@@ -106,7 +106,7 @@ static bool append_msg(int fd, const u8 *msg, u32 timestamp,
  */
 static bool can_upgrade(u8 oldversion)
 {
-	return oldversion == 9 || oldversion == 10;
+	return oldversion >= 9 && oldversion <= 11;
 }
 
 static bool upgrade_field(u8 oldversion,
