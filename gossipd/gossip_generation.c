@@ -264,8 +264,15 @@ static bool update_own_node_announcement(struct daemon *daemon,
 	daemon->node_announce_timer = tal_free(daemon->node_announce_timer);
 
 	/* If we don't have any channels now, don't send node_announcement */
-	if (!self || !node_has_broadcastable_channels(self))
+	if (!self || !node_has_broadcastable_channels(self)) {
+		if (!self)
+			status_debug("node_announcement: delaying (could "
+				     "not find self.");
+		if (!node_has_broadcastable_channels(self))
+			status_debug("node_announcement: delaying (this node "
+				     "has no broadcastable channels.");
 		goto reset_timer;
+	}
 
 	/* If we ever use set-based propagation, ensuring the toggle the lower
 	 * bit in consecutive timestamps makes it more robust. */
