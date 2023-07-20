@@ -103,6 +103,8 @@ static bool append_msg(int fd, const u8 *msg, u32 timestamp,
 
 /* v9 added the GOSSIP_STORE_LEN_RATELIMIT_BIT.
  * v10 removed any remaining non-htlc-max channel_update.
+ * v11 mandated channel_updates use the htlc_maximum_msat field
+ * v12 added the zombie flag for expired channel updates
  */
 static bool can_upgrade(u8 oldversion)
 {
