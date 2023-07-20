@@ -888,7 +888,7 @@ static const struct config testnet_config = {
 	/* 6 blocks to catch cheating attempts. */
 	.locktime_blocks = 6,
 
-	/* They can have up to 14 days, maximumu value that lnd will ask for by default. */
+	/* They can have up to 14 days, maximum value that lnd will ask for by default. */
 	/* FIXME Convince lnd to use more reasonable defaults... */
 	.locktime_max = 14 * 24 * 6,
 
@@ -952,7 +952,7 @@ static const struct config mainnet_config = {
 	/* ~one day to catch cheating attempts. */
 	.locktime_blocks = 6 * 24,
 
-	/* They can have up to 14 days, maximumu value that lnd will ask for by default. */
+	/* They can have up to 14 days, maximum value that lnd will ask for by default. */
 	/* FIXME Convince lnd to use more reasonable defaults... */
 	.locktime_max = 14 * 24 * 6,
 
@@ -999,7 +999,7 @@ static const struct config mainnet_config = {
 
 	.use_dns = true,
 
-	/* Excplicitly turns 'on' or 'off' IP discovery feature. */
+	/* Explicitly turns 'on' or 'off' IP discovery feature. */
 	.ip_discovery = OPT_AUTOBOOL_AUTO,
 
 	/* Public TCP port assumed for IP discovery. Defaults to chainparams. */
@@ -1293,7 +1293,7 @@ static void register_opts(struct lightningd *ld)
 		       opt_set_bool_arg, opt_show_bool,
 		       &ld->always_use_proxy, "Use the proxy always");
 
-	/* This immediately makes is a daemon. */
+	/* This immediately makes us a daemon. */
 	opt_register_early_noarg("--daemon", opt_start_daemon, ld,
 				 "Run in the background, suppress stdout/stderr");
 	opt_register_early_arg("--wallet", opt_set_talstr, NULL,
