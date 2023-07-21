@@ -245,7 +245,10 @@ static void sign_and_send_nannounce(struct daemon *daemon,
 
 /* Mutual recursion via timer */
 static void update_own_node_announcement_after_startup(struct daemon *daemon);
-static void setup_force_nannounce_regen_timer(struct daemon *daemon);
+static void setup_force_nannounce_regen_timer(struct daemon *daemon,
+					      struct timerel *delay_time,
+					      char *reason,
+					      bool always_refresh);
 
 /* This routine created a `node_announcement` for our node, and hands it to
  * the routing.c code like any other `node_announcement`.  Such announcements
@@ -300,15 +303,13 @@ static bool update_own_node_announcement(struct daemon *daemon,
 		/* Missing liquidity_ad, maybe we'll get plugin callback */
 		if (startup && only_missing_tlv) {
 			u32 delay = GOSSIP_NANN_STARTUP_DELAY(daemon->rstate->dev_fast_gossip);
-			status_debug("node_announcement: delaying"
-				     " %u secs at start", delay);
-
-			daemon->node_announce_timer
-				= new_reltimer(&daemon->timers,
-					       daemon,
-					       time_from_sec(delay),
-					       update_own_node_announcement_after_startup,
-					       daemon);
+			struct timerel *time_delay;
+			time_delay = tal(NULL, struct timerel);
+			time_delay->ts = time_from_sec(delay).ts;
+			setup_force_nannounce_regen_timer(daemon,
+							  time_delay,
+							  "at start",
+							  false);
 			return true;
 		}
 		/* BOLT #7:
@@ -322,15 +323,13 @@ static bool update_own_node_announcement(struct daemon *daemon,
 			+ GOSSIP_MIN_INTERVAL(daemon->rstate->dev_fast_gossip);
 
 		if (timestamp < next) {
-			status_debug("node_announcement: delaying %u secs",
-				     next - timestamp);
-
-			daemon->node_announce_timer
-				= new_reltimer(&daemon->timers,
-					       daemon,
-					       time_from_sec(next - timestamp),
-					       update_own_node_announcement_after_startup,
-					       daemon);
+			struct timerel *time_delay;
+			time_delay = tal(NULL, struct timerel);
+			time_delay->ts = time_from_sec(next).ts;
+			setup_force_nannounce_regen_timer(daemon,
+							  time_delay,
+							  NULL,
+							  false);
 			return true;
 		}
 	}
@@ -340,7 +339,7 @@ send:
 
 reset_timer:
 	/* Generate another one in 24 hours. */
-	setup_force_nannounce_regen_timer(daemon);
+	setup_force_nannounce_regen_timer(daemon, NULL, NULL, true);
 
 	return true;
 }
@@ -358,22 +357,41 @@ static void force_self_nannounce_regen(struct daemon *daemon)
 
 /* Because node_announcement propagation is spotty, we regenerate this every
  * 24 hours. */
-static void setup_force_nannounce_regen_timer(struct daemon *daemon)
+static void setup_force_nannounce_regen_timer(struct daemon *daemon,
+					      struct timerel *delay_time,
+					      char *reason,
+					      bool always_refresh)
 {
 	struct timerel regen_time;
 
-	/* For developers we can force a regen every 24 seconds to test */
-	if (IFDEV(daemon->rstate->dev_fast_gossip_prune, false))
-		regen_time = time_from_sec(24);
-	else
-		regen_time = time_from_sec(24 * 3600);
+	if (delay_time) {
+		regen_time = *delay_time;
+		tal_steal(daemon, delay_time);
+		tal_free(delay_time);
+	} else {
+		/* For developers we can force a regen every 24 seconds to test */
+		if (IFDEV(daemon->rstate->dev_fast_gossip_prune, false))
+			regen_time = time_from_sec(24);
+		else
+			regen_time = time_from_sec(24 * 3600);
+	}
+	if (reason) {
+
+		status_debug("node_announcement: delaying"
+			     " %li secs %s", regen_time.ts.tv_sec, reason);
+	} else
+	/* even more debugging - for now */
+		status_debug("node_announcement: delaying"
+			     " %li secs", regen_time.ts.tv_sec);
+
 
 	tal_free(daemon->node_announce_regen_timer);
 	daemon->node_announce_regen_timer
 		= new_reltimer(&daemon->timers,
 			       daemon,
 			       regen_time,
-			       force_self_nannounce_regen,
+			       always_refresh ? force_self_nannounce_regen :
+			       update_own_node_announcement_after_startup,
 			       daemon);
 }
 
