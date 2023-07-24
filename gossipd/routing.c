@@ -1417,9 +1417,14 @@ bool routing_add_channel_update(struct routing_state *rstate,
 		}
 
 		if (timestamp <= hc->rgraph.timestamp) {
-			SUPERVERBOSE("Ignoring outdated update.");
-			/* Ignoring != failing */
-			return true;
+			/* Load our own outdated update, otherwise it looks like
+			 * a private channel and is not refreshed. */
+			if (!node_id_eq(&chan->nodes[direction]->id,
+					&rstate->daemon->id)) {
+				SUPERVERBOSE("Ignoring outdated update.");
+				/* Ignoring != failing */
+				return true;
+			}
 		}
 
 		/* Allow redundant updates once every 7 days */
