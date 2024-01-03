@@ -385,9 +385,11 @@ static struct bitcoin_tx *spend_anchor(const tal_t *ctx,
 	if (!fromwire_hsmd_sign_anchorspend_reply(tmpctx, msg, &psbt))
 		fatal("Reading sign_anchorspend_reply: %s", tal_hex(tmpctx, msg));
 
-	if (!psbt_finalize(psbt))
-		fatal("Non-final PSBT from hsm: %s",
-		      type_to_string(tmpctx, struct wally_psbt, psbt));
+	if (!psbt_finalize(psbt)) {
+		log_unusual(channel->log,"Non-final PSBT from hsm: %s",
+			    type_to_string(tmpctx, struct wally_psbt, psbt));
+		return NULL;
+	}
 
 	/* Update fee so we know for next time */
 	anch->anchor_spend_fee = fee;
