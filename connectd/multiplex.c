@@ -394,6 +394,7 @@ static bool is_urgent(enum peer_wire type)
 	case WIRE_SPLICE:
 	case WIRE_SPLICE_ACK:
 	case WIRE_SPLICE_LOCKED:
+	case WIRE_PEER_ALT_ADDRESS:
 		return false;
 
 	/* These are time-sensitive, and so send without delay. */

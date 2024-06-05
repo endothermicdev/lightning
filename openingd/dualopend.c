@@ -1702,6 +1702,7 @@ static u8 *opening_negotiate_msg(const tal_t *ctx, struct state *state)
 		case WIRE_SPLICE:
 		case WIRE_SPLICE_ACK:
 		case WIRE_SPLICE_LOCKED:
+		case WIRE_PEER_ALT_ADDRESS:
 			break;
 		}
 
@@ -2079,6 +2080,7 @@ static bool run_tx_interactive(struct state *state,
 		case WIRE_SPLICE:
 		case WIRE_SPLICE_ACK:
 		case WIRE_SPLICE_LOCKED:
+		case WIRE_PEER_ALT_ADDRESS:
 			open_abort(state, "Unexpected wire message %s",
 				   tal_hex(tmpctx, msg));
 			return false;
@@ -4284,6 +4286,7 @@ static u8 *handle_peer_in(struct state *state)
 	case WIRE_SPLICE:
 	case WIRE_SPLICE_ACK:
 	case WIRE_SPLICE_LOCKED:
+	case WIRE_PEER_ALT_ADDRESS:
 		break;
 	}
 

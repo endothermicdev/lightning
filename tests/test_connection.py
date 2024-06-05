@@ -70,45 +70,114 @@ def test_connect_basic(node_factory):
     assert l1.rpc.listpeers(l2id)['peers'][0]['num_channels'] == 2
 
 
+# def test_connect_with_alt_addr(node_factory, bitcoind):
+#     # Step 1: Set up two nodes and open a channel
+#     l1 = node_factory.get_node(may_reconnect=True)
+#     l2 = node_factory.get_node(may_reconnect=True)
+#     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
+
+#     # Should reconnect.
+#     wait_for(lambda: only_one(l1.rpc.listpeers(l2.info['id'])['peers'])['connected'])
+#     wait_for(lambda: only_one(l2.rpc.listpeers(l1.info['id'])['peers'])['connected'])
+#     l1.fundchannel(l2, 10**6)
+    
+#     # Step 2: Modify configuration to use alt-addr
+#     alt_addr = '127.0.0.21'
+#     l2.stop()
+#     l2.daemon.opts['alt-addr'] = f'{alt_addr}:{l2.port}'
+#     # l2.daemon.opts['bind-addr'] = f'{alt_addr}:{l2.port}'
+#     l2.start()
+    
+#     # Verify the alt-addr setting
+#     try:
+#         binding = l2.rpc.getinfo()['binding']
+#         assert len(binding) > 0, "No binding found for l2"
+#         assert any(bind['address'] == alt_addr for bind in binding), f"Expected alt-addr {alt_addr}, found {binding}"
+#     except Exception as e:
+#         logging.error(f"alt-addr not set correctly: {e}")
+#         raise
+    
+#     # Step 3: Reconnect using alt-addr
+#     try:
+#         # Disconnect the peers first if they are connected
+#         if any(peer['connected'] for peer in l1.rpc.listpeers()['peers']):
+#             l1.rpc.disconnect(l2.info['id'], force=True)
+        
+#         l1.rpc.connect(l2.info['id'], alt_addr, l2.port)
+#     except Exception as e:
+#         logging.error(f"Error reconnecting nodes: {e}")
+#         raise
+    
+#     # Verify the connection is using the new alt-addr
+#     try:
+#         connected_peer = l1.rpc.getpeer(l2.info['id'])
+#         assert connected_peer['connected'], "Peers not connected"
+#         assert connected_peer['netaddr'][0].startswith(alt_addr), f"Connection not using alt-addr: {connected_peer['netaddr'][0]}"
+#     except Exception as e:
+#         logging.error(f"Error verifying connection using alt-addr: {e}")
+#         raise
+    
+#     # Ensure the channel is still active
+#     try:
+#         channel_state = l1.rpc.listpeerchannels(l2.info['id'])['channels'][0]['state']
+#         assert channel_state == 'CHANNELD_NORMAL', f"Channel state is {channel_state}, expected CHANNELD_NORMAL"
+#     except Exception as e:
+#         logging.error(f"Channel state not normal: {e}")
+#         raise
+
+
 def test_connect_with_alt_addr(node_factory, bitcoind):
-    # Step 1: Set up two nodes and open a channel
+    logging.basicConfig(level=logging.INFO)
+    
+    # Set up nodes
+    logging.info("Setting up two nodes with the capability to reconnect")
     l1 = node_factory.get_node(may_reconnect=True)
     l2 = node_factory.get_node(may_reconnect=True)
+
+    # Initial connection
+    logging.info(f"Initial connection from l1 to l2 using localhost and port {l2.port}")
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
 
-    # Should reconnect.
+    # Checking initial connection state
+    logging.info("Waiting for both nodes to report they are connected...")
     wait_for(lambda: only_one(l1.rpc.listpeers(l2.info['id'])['peers'])['connected'])
     wait_for(lambda: only_one(l2.rpc.listpeers(l1.info['id'])['peers'])['connected'])
+
+    # Fund channel and log the event
+    logging.info(f"Funding channel between l1 and l2 with 10**6 satoshis")
     l1.fundchannel(l2, 10**6)
     
-    # Step 2: Modify configuration to use alt-addr
-    alt_addr = '127.0.0.21'
+    # Modifying node configuration to use an alternative address
+    alt_addr = '127.21.21.21'
+    logging.info(f"Stopping l2 to change its address to {alt_addr}:{l2.port}")
     l2.stop()
-    l2.daemon.opts['alt-addr'] = f'{alt_addr}:{l2.port}'
     # l2.daemon.opts['bind-addr'] = f'{alt_addr}:{l2.port}'
+    l2.daemon.opts['alt-addr'] = f'{alt_addr}:{l2.port}'
     l2.start()
-    
-    # Verify the alt-addr setting
+    logging.info("Restarted l2 with alternative address")
+
+    # Verification of the alternative address setting
+    logging.info("Verifying alternative address setting on l2")
     try:
         binding = l2.rpc.getinfo()['binding']
         assert len(binding) > 0, "No binding found for l2"
         assert any(bind['address'] == alt_addr for bind in binding), f"Expected alt-addr {alt_addr}, found {binding}"
     except Exception as e:
-        logging.error(f"alt-addr not set correctly: {e}")
+        logging.error(f"Alternative address not set correctly: {e}")
         raise
-    
-    # Step 3: Reconnect using alt-addr
+
+    # Reconnection using the alternative address
+    logging.info("Attempting to reconnect using the new alternative address")
     try:
-        # Disconnect the peers first if they are connected
         if any(peer['connected'] for peer in l1.rpc.listpeers()['peers']):
             l1.rpc.disconnect(l2.info['id'], force=True)
-        
         l1.rpc.connect(l2.info['id'], alt_addr, l2.port)
     except Exception as e:
-        logging.error(f"Error reconnecting nodes: {e}")
+        logging.error(f"Error reconnecting nodes using alternative address: {e}")
         raise
     
-    # Verify the connection is using the new alt-addr
+    # Verify the connection using the new address
+    logging.info("Verifying new connection details")
     try:
         connected_peer = l1.rpc.getpeer(l2.info['id'])
         assert connected_peer['connected'], "Peers not connected"
@@ -116,8 +185,9 @@ def test_connect_with_alt_addr(node_factory, bitcoind):
     except Exception as e:
         logging.error(f"Error verifying connection using alt-addr: {e}")
         raise
-    
-    # Ensure the channel is still active
+
+    # Verify the channel state
+    logging.info("Checking the channel state after reconnection")
     try:
         channel_state = l1.rpc.listpeerchannels(l2.info['id'])['channels'][0]['state']
         assert channel_state == 'CHANNELD_NORMAL', f"Channel state is {channel_state}, expected CHANNELD_NORMAL"

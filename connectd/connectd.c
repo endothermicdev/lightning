@@ -2086,6 +2086,7 @@ static struct io_plan *recv_req(struct io_conn *conn,
 		goto out;
 
 	case WIRE_CONNECTD_CONNECT_TO_PEER:
+	// case WIRE_PEER_ALT_ADDRESS:
 		connect_to_peer(daemon, msg);
 		goto out;
 

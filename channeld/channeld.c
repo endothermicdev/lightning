@@ -535,6 +535,30 @@ static void handle_peer_splice_locked(struct peer *peer, const u8 *msg)
 	check_mutual_splice_locked(peer);
 }
 
+static void handle_peer_alt_addr(struct peer *peer, const u8 *msg)
+{
+	struct pubkey peer_id;
+	u8 *alt_addr;
+	// u32 *timestamp = NULL;
+	fprintf(stderr, "handle_peer_alt_addr: called with message\n");
+	if (!fromwire_peer_alt_address(peer, (u8 *)msg, &peer_id, &alt_addr/* , timestamp */)) {
+		master_badmsg(WIRE_PEER_ALT_ADDRESS, (void *)msg);
+	}
+	fprintf(stderr, "Alternative address for peer %s received.\n", type_to_string(tmpctx, struct pubkey, &peer_id));
+
+	// struct peer *peer = peer_htable_get(daemon->peers, &peer_id);
+	// if (!peer)
+	// 		return;  // Peer not found
+	
+	// updating peer information in a database:
+	// update_peer_address(peer, &alt_addr);
+
+	// Optionally, trigger actions that use the new address immediately, 
+	// such as attempting a new connection:
+	// try_connect_to_peer(peer, &alt_addr);
+
+}
+
 static void handle_peer_channel_ready(struct peer *peer, const u8 *msg)
 {
 	struct channel_id chanid;
@@ -4253,6 +4277,9 @@ static void peer_in(struct peer *peer, const u8 *msg)
 		return;
 	case WIRE_SPLICE_LOCKED:
 		handle_peer_splice_locked(peer, msg);
+		return;
+	case WIRE_PEER_ALT_ADDRESS:
+		handle_peer_alt_addr(peer, msg);
 		return;
 	case WIRE_INIT:
 	case WIRE_OPEN_CHANNEL:
