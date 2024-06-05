@@ -2052,6 +2052,13 @@ def listconfigs_configs_allow_deprecated_apis2py(m):
     })
 
 
+def listconfigs_configs_alt_addr2py(m):
+    return remove_default({
+        "sources": [m.sources for i in m.sources], # ArrayField[primitive] in generate_composite
+        "values_str": [m.values_str for i in m.values_str], # ArrayField[primitive] in generate_composite
+    })
+
+
 def listconfigs_configs_always_use_proxy2py(m):
     return remove_default({
         "source": m.source,  # PrimitiveField in generate_composite

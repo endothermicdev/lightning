@@ -1589,6 +1589,7 @@
             "ListConfigs.configs.addr": 47,
             "ListConfigs.configs.alias": 30,
             "ListConfigs.configs.allow-deprecated-apis": 14,
+            "ListConfigs.configs.alt-addr": 71,
             "ListConfigs.configs.always-use-proxy": 17,
             "ListConfigs.configs.announce-addr": 48,
             "ListConfigs.configs.announce-addr-discovered": 54,
@@ -1671,6 +1672,10 @@
         "ListconfigsConfigsAllow-deprecated-apis": {
             "ListConfigs.configs.allow-deprecated-apis.source": 2,
             "ListConfigs.configs.allow-deprecated-apis.value_bool": 1
+        },
+        "ListconfigsConfigsAlt-addr": {
+            "ListConfigs.configs.alt-addr.sources[]": 2,
+            "ListConfigs.configs.alt-addr.values_str[]": 1
         },
         "ListconfigsConfigsAlways-use-proxy": {
             "ListConfigs.configs.always-use-proxy.source": 2,
@@ -6676,6 +6681,18 @@
         },
         "ListConfigs.configs.allow-deprecated-apis.value_bool": {
             "added": "pre-v0.10.1",
+            "deprecated": false
+        },
+        "ListConfigs.configs.alt-addr": {
+            "added": "v24.05",
+            "deprecated": false
+        },
+        "ListConfigs.configs.alt-addr.sources[]": {
+            "added": "v24.05",
+            "deprecated": false
+        },
+        "ListConfigs.configs.alt-addr.values_str[]": {
+            "added": "v24.05",
             "deprecated": false
         },
         "ListConfigs.configs.always-use-proxy": {

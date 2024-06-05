@@ -1600,6 +1600,9 @@ static void register_opts(struct lightningd *ld)
 		       opt_set_uintval,
 		       opt_show_uintval, &ld->config.ip_discovery_port,
 		       "Sets the public TCP port to use for announcing discovered IPs.");
+			clnopt_witharg("--alt-addr", OPT_MULTI, opt_add_bind_addr, NULL,
+		       ld,
+		       "Set an alternative IP address (v4 or v6) to use selectively for private reconnections with established peers. This address enhances privacy and is not publicly announced.");
 	opt_register_noarg("--offline", opt_set_offline, ld,
 			   "Start in offline-mode (do not automatically reconnect and do not accept incoming connections)");
 	clnopt_witharg("--autolisten", OPT_SHOWBOOL,

@@ -2923,6 +2923,7 @@ message ListconfigsConfigs {
 	optional ListconfigsConfigsRequireconfirmedinputs require_confirmed_inputs = 68;
 	optional ListconfigsConfigsCommitfee commit_fee = 69;
 	optional ListconfigsConfigsCommitfeerateoffset commit_feerate_offset = 70;
+	optional ListconfigsConfigsAltaddr alt_addr = 71;
 }
 
 message ListconfigsConfigsConf {
@@ -3172,6 +3173,11 @@ message ListconfigsConfigsAnnounceaddr {
 }
 
 message ListconfigsConfigsBindaddr {
+	repeated string values_str = 1;
+	repeated string sources = 2;
+}
+
+message ListconfigsConfigsAltaddr {
 	repeated string values_str = 1;
 	repeated string sources = 2;
 }

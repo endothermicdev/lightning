@@ -621,6 +621,17 @@ its use disables autolisten.
 
   When set to *true* (default is *false*), prefixes all `HOSTNAME` in **announce-addr** with `dns:`.
 
+* **alt-addr**=*\[IPADDRESS\[:PORT\]]\*
+
+  Specify an alternative IP address (v4 or v6) and optionally a port,
+to be used for selective private communications with established peers.
+This address is used selectively, primarily for reconnections with known peers,
+enhancing privacy and optimizing connectivity based on previous interactions.
+This address is not publicly announced.
+
+  An empty 'IPADDRESS' is a special value that clears any previously saved alternate addresses,
+effectively resetting this setting. (Added in v24.05).
+
 * **offline**
 
   Do not bind to any ports, and do not try to reconnect to any peers. This
