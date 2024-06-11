@@ -194,6 +194,7 @@ struct peer {
 };
 
 static void start_commit_timer(struct peer *peer);
+// void send_peer_alt_address(struct peer *peer, const struct pubkey *node_id, const u8 *alt_address);
 
 static void billboard_update(const struct peer *peer)
 {
@@ -535,16 +536,34 @@ static void handle_peer_splice_locked(struct peer *peer, const u8 *msg)
 	check_mutual_splice_locked(peer);
 }
 
+// void send_peer_alt_address(struct peer *peer, const struct pubkey *node_id, const u8 *alt_address)
+// {
+// 	u8 *msg = towire_peer_alt_address(peer, node_id, alt_address);
+
+// 	peer_write(peer->pps, take(msg));
+// 	fprintf(stderr, "Sent alternative address message to peer");
+// }
+
 static void handle_peer_alt_addr(struct peer *peer, const u8 *msg)
 {
 	struct pubkey peer_id;
 	u8 *alt_addr;
 	// u32 *timestamp = NULL;
-	fprintf(stderr, "handle_peer_alt_addr: called with message\n");
-	if (!fromwire_peer_alt_address(peer, (u8 *)msg, &peer_id, &alt_addr/* , timestamp */)) {
-		master_badmsg(WIRE_PEER_ALT_ADDRESS, (void *)msg);
+	// fprintf(stderr, "Entering handle_peer_alt_eight with msg %s\n", msg);
+	fprintf(stderr, "1 THIS IS A TEST\n");
+	status_info("2 THIS IS A TEST");
+	if (!fromwire_peer_alt_address(tmpctx, msg, &peer_id, &alt_addr/* , timestamp */)) {
+		master_badmsg(WIRE_PEER_ALT_ADDRESS, msg);
 	}
-	fprintf(stderr, "Alternative address for peer %s received.\n", type_to_string(tmpctx, struct pubkey, &peer_id));
+	fprintf(stderr, "3 THIS IS A TEST\n");
+	status_info("3.5 THIS IS A TEST");
+	// peer = peer_htable_get(daemon->peers, &id);
+	// if (!peer)
+	// 	return;
+
+	// Store the alternative address in the peer structure
+	// peer->alt_address = alt_addr; // Assuming you have such a field in the struct
+	// log_info(peer->log, "Received alt address: %s", alt_addr);
 
 	// struct peer *peer = peer_htable_get(daemon->peers, &peer_id);
 	// if (!peer)
@@ -4181,6 +4200,9 @@ static void handle_splice_init(struct peer *peer, const u8 *inmsg)
 static void peer_in(struct peer *peer, const u8 *msg)
 {
 	enum peer_wire type = fromwire_peektype(msg);
+
+	// fprintf(stderr, "4 THIS IS A TEST\n");
+	// status_info("5 THIS IS A TEST %s", msg);
 
 	if (handle_peer_error_or_warning(peer->pps, msg))
 		return;

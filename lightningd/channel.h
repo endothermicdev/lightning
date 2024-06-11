@@ -798,5 +798,7 @@ const u8 *channel_update_for_error(const tal_t *ctx,
 
 struct amount_msat htlc_max_possible_send(const struct channel *channel);
 
+// void send_peer_alt_address(struct peer *peer, const struct pubkey *node_id, const u8 *alt_address);
+
 
 #endif /* LIGHTNING_LIGHTNINGD_CHANNEL_H */

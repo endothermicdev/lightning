@@ -20,6 +20,8 @@ void force_peer_disconnect(struct lightningd *ld,
 			   const struct peer *peer,
 			   const char *why);
 
+// void send_peer_alt_address(struct peer *peer, const struct pubkey *node_id, const u8 *alt_address);
+
 void try_reconnect(const tal_t *ctx,
 		   struct peer *peer,
 		   const struct wireaddr_internal *addrhint);

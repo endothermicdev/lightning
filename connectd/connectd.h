@@ -132,6 +132,8 @@ HTABLE_DEFINE_TYPE(struct peer,
 		   peer_eq_node_id,
 		   peer_htable);
 
+// typedef void (*peer_connected_cb)(struct daemon *daemon, struct peer *peer);
+
 /*~ Peers we're trying to reach: we iterate through addrs until we succeed
  * or fail. */
 struct connecting {
@@ -157,6 +159,13 @@ struct connecting {
 
 	/* Is this a transient connection? */
 	bool transient;
+
+	/* Callback to call when connected */
+	// peer_connected_cb cb;
+
+	/* Additional fields as needed */
+	// const u8 *their_features;
+	// bool incoming;
 };
 
 static const struct node_id *connecting_keyof(const struct connecting *connecting)
@@ -292,4 +301,8 @@ void destroy_peer(struct peer *peer);
 
 /* Remove a random connection, when under stress. */
 void close_random_connection(struct daemon *daemon);
+
+void send_peer_alt_address(struct peer *peer, const struct pubkey *node_id, const u8 *alt_address);
+void broadcast_alt_address(struct daemon *daemon, const u8 *alt_address);
+
 #endif /* LIGHTNING_CONNECTD_CONNECTD_H */

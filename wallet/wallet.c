@@ -1027,6 +1027,55 @@ done:
 	return peer;
 }
 
+#include <stdio.h>
+
+void wallet_peer_alt_addr(struct db *db, const struct node_id *node_id, const char *alt_addr)
+{
+	struct db_stmt *stmt;
+	// bool transaction_started = false;
+
+		// Print all parameters to stderr
+	fprintf(stderr, "INSIDE wallet_peer_alt_addr:\n");
+	fprintf(stderr, "db pointer: %p\n", (void *)db);  // Print the pointer value of db
+	fprintf(stderr, "Node ID: %s\n", fmt_node_id(tmpctx, node_id));
+	fprintf(stderr, "alt_addr: %s\n", alt_addr ? alt_addr : "NULL");  // Print alt_addr, checking if it is NULL
+
+
+	fprintf(stderr, "INSIDE Adding alternative address: %s", alt_addr);
+	// if (!db_in_transaction(db)) {
+	// 	db_begin_transaction(db);
+	// 	transaction_started = true;
+	// }
+
+	if (alt_addr != NULL) {
+		stmt = db_prepare_v2(db, SQL("UPDATE vars SET alt_addr=? WHERE node_id=?"));
+		db_bind_text(stmt, alt_addr);
+	} else {
+		stmt = db_prepare_v2(db, SQL("UPDATE vars SET alt_addr=NULL WHERE node_id=?"));
+	}
+	db_bind_node_id(stmt, node_id);
+	db_exec_prepared_v2(take(stmt));
+
+
+	// if (transaction_started) {
+	// 	db_commit_transaction(db);
+	// 	// tal_free(stmt);
+	// }
+
+
+
+/* 	struct db_stmt *stmt;
+
+	if (alt_addr != NULL) {
+		stmt = db_prepare_v2(db, SQL("UPDATE peers SET alt_addr=? WHERE node_id=?"));
+		db_bind_text(stmt, alt_addr);
+	} else {
+		stmt = db_prepare_v2(db, SQL("UPDATE peers SET alt_addr=NULL WHERE node_id=?"));
+	}
+	db_bind_node_id(stmt, node_id);
+	db_exec_prepared_v2(take(stmt));
+ */}
+
 static struct bitcoin_signature *
 wallet_htlc_sigs_load(const tal_t *ctx, struct wallet *w, u64 channelid,
 		      bool option_anchors)

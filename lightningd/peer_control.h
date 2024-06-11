@@ -87,6 +87,10 @@ void peer_connected(struct lightningd *ld, const u8 *msg);
 void peer_disconnect_done(struct lightningd *ld, const u8 *msg);
 void peer_spoke(struct lightningd *ld, const u8 *msg);
 
+void send_peer_alt_address(struct peer *peer, const struct pubkey *node_id, const u8 *alt_address);
+void send_alt_address_to_all_peers(struct lightningd *ld, const u8 *alt_address);
+
+
 /* Could be configurable. */
 #define OUR_CHANNEL_FLAGS CHANNEL_FLAGS_ANNOUNCE_CHANNEL
 

@@ -29,6 +29,8 @@ struct connect {
 	struct command *cmd;
 };
 
+// void send_peer_alt_address(struct peer *peer, const struct pubkey *node_id, const u8 *alt_address);
+
 static void destroy_connect(struct connect *c)
 {
 	list_del(&c->list);
@@ -364,6 +366,12 @@ static void try_connect(const tal_t *ctx,
 	/* Update any channel billboards */
 	peer = peer_by_id(ld, id);
 	if (peer) {
+		// struct pubkey pubkey;
+		// if (pubkey_from_node_id(&pubkey, id)) {
+		// 	send_peer_alt_address(peer, &pubkey, (const u8 *)"127.21.21.21");
+		// } else {
+		// 	log_peer_debug(ld->log, id, "THIS IS A TEST 9");
+		// }
 		struct channel *channel;
 		list_for_each(&peer->channels, channel, list) {
 			if (!channel_state_wants_peercomms(channel->state))

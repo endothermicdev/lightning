@@ -395,6 +395,16 @@ struct wallet_transaction {
 };
 
 /**
+ * wallet_peer_alt_addr - Update the alternative address for a peer
+ * @db: the database
+ * @node_id: the ID of the node
+ * @alt_addr: the alternative address to set, or NULL to clear the alt_addr
+ *
+ * This function updates the `alt_addr` field of a peer in the database.
+ */
+void wallet_peer_alt_addr(struct db *db, const struct node_id *node_id, const char *alt_addr);
+
+/**
  * wallet_new - Constructor for a new DB based wallet
  *
  * This is guaranteed to either return a valid wallet, or abort with

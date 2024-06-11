@@ -184,6 +184,7 @@ start_nodes() {
 		log-level=debug
 		log-file=$LIGHTNING_DIR/l$i/log
 		addr=localhost:$socket
+		alt-addr=127.21.21.21:$socket
 		allow-deprecated-apis=false
 		developer
 		dev-fast-gossip

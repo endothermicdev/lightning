@@ -6,5 +6,6 @@
 #include <ccan/tal/tal.h>
 
 const u8 *hsm_req(const tal_t *ctx, const u8 *req TAKES);
+// void send_peer_alt_address(struct peer *peer, const struct pubkey *node_id, const u8 *alt_address);
 
 #endif /* LIGHTNING_CHANNELD_CHANNELD_H */

@@ -56,6 +56,7 @@ bool wireaddr_eq_without_port(const struct wireaddr *a, const struct wireaddr *b
  * announce */
 enum addr_listen_announce {
 	ADDR_LISTEN = (1 << 0),
+	ALT_ADDR_LISTEN = (2 << 0),
 	ADDR_ANNOUNCE = (1 << 1),
 	ADDR_LISTEN_AND_ANNOUNCE = ADDR_LISTEN|ADDR_ANNOUNCE
 };
