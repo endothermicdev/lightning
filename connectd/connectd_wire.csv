@@ -167,3 +167,9 @@ msgtype,connectd_dev_suppress_gossip,2032
 
 # master -> connect: waste all your fds.
 msgtype,connectd_dev_exhaust_fds,2036
+
+# connectd -> master: peer alternative connection address
+msgtype,connectd_alt_address,2037
+msgdata,connectd_alt_address,node_id,point,
+msgdata,connectd_alt_address,address_len,u8,
+msgdata,connectd_alt_address,address,byte,address_len,

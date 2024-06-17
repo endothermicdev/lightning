@@ -29,8 +29,6 @@ struct connect {
 	struct command *cmd;
 };
 
-// void send_peer_alt_address(struct peer *peer, const struct pubkey *node_id, const u8 *alt_address);
-
 static void destroy_connect(struct connect *c)
 {
 	list_del(&c->list);
@@ -368,10 +366,7 @@ static void try_connect(const tal_t *ctx,
 	if (peer) {
 		// struct pubkey pubkey;
 		// if (pubkey_from_node_id(&pubkey, id)) {
-		// 	send_peer_alt_address(peer, &pubkey, (const u8 *)"127.21.21.21");
-		// } else {
-		// 	log_peer_debug(ld->log, id, "THIS IS A TEST 9");
-		// }
+		// 	send_peer_alt_address(peer, &pubkey, (const u8 *)"127.21.21.21"); // THIS MIGHT BE THE RIGHT PLACE IN THE END, NEED TO SEND ANOTHER MSG FROM MASTER -> CHANNELD then????
 		struct channel *channel;
 		list_for_each(&peer->channels, channel, list) {
 			if (!channel_state_wants_peercomms(channel->state))
@@ -564,6 +559,22 @@ static void handle_custommsg_in(struct lightningd *ld, const u8 *msg)
 	plugin_hook_call_custommsg(ld, NULL, p);
 }
 
+static void handle_alt_addr_in(struct lightningd *ld, const u8 *msg)
+{
+	struct pubkey node_id;
+	struct node_id id;
+	u8 *alt_addr;
+
+	if (!fromwire_connectd_alt_address(tmpctx, msg, &node_id, &alt_addr)) {
+		log_broken(ld->log, "Malformed peer_alt_addr_msg: %s",
+								tal_hex(tmpctx, msg));
+		return;
+	}
+
+	node_id_from_pubkey(&id, &node_id);
+	wallet_peer_alt_addr(ld->wallet->db, &id, (char *)alt_addr);
+}
+
 static void connectd_start_shutdown_reply(struct subd *connectd,
 					  const u8 *reply,
 					  const int *fds UNUSED,
@@ -652,6 +663,10 @@ static unsigned connectd_msg(struct subd *connectd, const u8 *msg, const int *fd
 
 	case WIRE_CONNECTD_CUSTOMMSG_IN:
 		handle_custommsg_in(connectd->ld, msg);
+		break;
+
+	case WIRE_CONNECTD_ALT_ADDRESS:
+		handle_alt_addr_in(connectd->ld, msg);
 		break;
 	}
 	return 0;

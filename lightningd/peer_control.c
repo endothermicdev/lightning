@@ -3534,33 +3534,3 @@ void peer_dev_memleak(struct lightningd *ld, struct leak_detect *leaks)
 		}
 	}
 }
-
-// #include <assert.h>
-
-// void send_peer_alt_address(struct peer *peer, const struct pubkey *node_id, const u8 *alt_address)
-// {
-// 	assert(peer != NULL);
-// 	assert(node_id != NULL);
-// 	assert(alt_address != NULL);
-
-// 	u8 *msg = towire_peer_alt_address(peer, node_id, alt_address);
-// 	peer_write(peer->pps, take(msg));
-// 	status_info("Sent alternative address message to peer");
-// }
-
-// void send_alt_address_to_all_peers(struct lightningd *ld, const u8 *alt_address)
-// {
-// 	struct peer_htable_iter it;
-	// struct peer *peer = peer_htable_first(ld->peers, &it);
-// 	struct pubkey pubkey;
-
-// 	while (peer) {
-// 		if (pubkey_from_node_id(&pubkey, &peer->id)) {
-// 			send_peer_alt_address(peer, &pubkey, alt_address);
-// 		} else {
-// 			status_peer_unusual(&peer->id, "Failed to obtain public key");
-// 		}
-
-// 		peer = peer_htable_next(ld->peers, &it);
-// 	}
-// }

@@ -393,6 +393,6 @@ msgdata,onion_message,len,u16,
 msgdata,onion_message,onionmsg,byte,len,
 msgtype,peer_alt_address,208
 msgdata,peer_alt_address,node_id,point,
-msgdata,peer_alt_address,address_len,u16,
+msgdata,peer_alt_address,address_len,u8,
 msgdata,peer_alt_address,address,byte,address_len,
 #msgdata,peer_alt_address,timestamp,u32,

@@ -68,6 +68,9 @@ struct peer {
 	bool channel_ready[NUM_SIDES];
 	u64 next_index[NUM_SIDES];
 
+	/* ID of peer */
+	struct node_id id;
+
 	/* --developer? */
 	bool developer;
 
@@ -191,10 +194,13 @@ struct peer {
 
 	/* --experimental-upgrade-protocol */
 	bool experimental_upgrade;
+
+	/* Alt address for peer connections not publicly announced */
+	u8 *alt_addr;
 };
 
 static void start_commit_timer(struct peer *peer);
-// void send_peer_alt_address(struct peer *peer, const struct pubkey *node_id, const u8 *alt_address);
+static void send_peer_alt_address(struct peer *peer);
 
 static void billboard_update(const struct peer *peer)
 {
@@ -536,46 +542,13 @@ static void handle_peer_splice_locked(struct peer *peer, const u8 *msg)
 	check_mutual_splice_locked(peer);
 }
 
-// void send_peer_alt_address(struct peer *peer, const struct pubkey *node_id, const u8 *alt_address)
-// {
-// 	u8 *msg = towire_peer_alt_address(peer, node_id, alt_address);
+static void send_peer_alt_address(struct peer *peer) {
+	struct pubkey node_id;
 
-// 	peer_write(peer->pps, take(msg));
-// 	fprintf(stderr, "Sent alternative address message to peer");
-// }
-
-static void handle_peer_alt_addr(struct peer *peer, const u8 *msg)
-{
-	struct pubkey peer_id;
-	u8 *alt_addr;
-	// u32 *timestamp = NULL;
-	// fprintf(stderr, "Entering handle_peer_alt_eight with msg %s\n", msg);
-	fprintf(stderr, "1 THIS IS A TEST\n");
-	status_info("2 THIS IS A TEST");
-	if (!fromwire_peer_alt_address(tmpctx, msg, &peer_id, &alt_addr/* , timestamp */)) {
-		master_badmsg(WIRE_PEER_ALT_ADDRESS, msg);
+	if (pubkey_from_node_id(&node_id, &peer->id)) {
+		u8 *msg = towire_peer_alt_address(peer, &node_id, peer->alt_addr);
+		peer_write(peer->pps, take(msg));
 	}
-	fprintf(stderr, "3 THIS IS A TEST\n");
-	status_info("3.5 THIS IS A TEST");
-	// peer = peer_htable_get(daemon->peers, &id);
-	// if (!peer)
-	// 	return;
-
-	// Store the alternative address in the peer structure
-	// peer->alt_address = alt_addr; // Assuming you have such a field in the struct
-	// log_info(peer->log, "Received alt address: %s", alt_addr);
-
-	// struct peer *peer = peer_htable_get(daemon->peers, &peer_id);
-	// if (!peer)
-	// 		return;  // Peer not found
-	
-	// updating peer information in a database:
-	// update_peer_address(peer, &alt_addr);
-
-	// Optionally, trigger actions that use the new address immediately, 
-	// such as attempting a new connection:
-	// try_connect_to_peer(peer, &alt_addr);
-
 }
 
 static void handle_peer_channel_ready(struct peer *peer, const u8 *msg)
@@ -4201,13 +4174,13 @@ static void peer_in(struct peer *peer, const u8 *msg)
 {
 	enum peer_wire type = fromwire_peektype(msg);
 
-	// fprintf(stderr, "4 THIS IS A TEST\n");
-	// status_info("5 THIS IS A TEST %s", msg);
-
 	if (handle_peer_error_or_warning(peer->pps, msg))
 		return;
 
 	check_tx_abort(peer, msg);
+
+	if (peer->alt_addr)
+		send_peer_alt_address(peer);
 
 	/* If we're in STFU mode and aren't waiting for a STFU mode
 	 * specific message, the only valid message was tx_abort */
@@ -4300,9 +4273,6 @@ static void peer_in(struct peer *peer, const u8 *msg)
 	case WIRE_SPLICE_LOCKED:
 		handle_peer_splice_locked(peer, msg);
 		return;
-	case WIRE_PEER_ALT_ADDRESS:
-		handle_peer_alt_addr(peer, msg);
-		return;
 	case WIRE_INIT:
 	case WIRE_OPEN_CHANNEL:
 	case WIRE_ACCEPT_CHANNEL:
@@ -4344,6 +4314,7 @@ static void peer_in(struct peer *peer, const u8 *msg)
 	case WIRE_ONION_MESSAGE:
 	case WIRE_PEER_STORAGE:
 	case WIRE_YOUR_PEER_STORAGE:
+	case WIRE_PEER_ALT_ADDRESS:
 		abort();
 	}
 
@@ -5918,7 +5889,9 @@ static void init_channel(struct peer *peer)
 				    &reestablish_only,
 				    &peer->experimental_upgrade,
 				    &peer->splice_state->inflights,
-				    &peer->local_alias)) {
+				    &peer->local_alias,
+				    &peer->alt_addr,
+				    &peer->id)) {
 		master_badmsg(WIRE_CHANNELD_INIT, msg);
 	}
 

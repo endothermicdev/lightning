@@ -25,7 +25,6 @@
 #include <common/gossip_store.h>
 #include <common/jsonrpc_errors.h>
 #include <common/memleak.h>
-// #include <common/peer_io.h>
 #include <common/status.h>
 #include <common/subdaemon.h>
 #include <common/timeout.h>
@@ -59,9 +58,6 @@
  * thus may know how to reach certain peers. */
 #define HSM_FD 3
 #define GOSSIPCTL_FD 4
-
-void peer_connected_wrapper(struct daemon *daemon, struct peer *peer);
-
 
 /*~ C programs should generally be written bottom-to-top, with the root
  * function at the bottom, and functions it calls above it.  That avoids
@@ -302,27 +298,6 @@ struct io_plan *peer_connected(struct io_conn *conn,
 	 * we have connected.  Once it says something interesting, we tell
 	 * it that, too. */
 	daemon_conn_send(daemon->master, take(msg));
-
-	/* Invoke the callback if set */
-	// if (connect && connect->cb) {
-		// connect->cb(daemon, peer);
-		// struct pubkey pubkey;
-		// if (pubkey_from_node_id(&pubkey, id)) {
-		// 		send_peer_alt_address(peer, &pubkey, (const u8 *)"127.21.21.21");
-		// } else {
-		// 	status_peer_unusual(id, "THIS IS A TEST 8");
-		// }
-		// struct pubkey pubkey;
-		// if (pubkey_from_node_id(&pubkey, id)) {
-			// send_peer_alt_address(peer, &pubkey, (const u8 *)"127.21.21.21");
-			// u8 *msg = towire_peer_alt_address(peer, &pubkey, (const u8 *)"127.21.21.21");
-			// peer_write(peer->pps, take(msg));
-			// status_info("Sent alternative address message to peer");
-		// } else {
-			// status_peer_unusual(id, "THIS IS A TEST 8");
-		// }
-		// tal_free(connect);
-	// }
 
 	/*~ Now we set up this connection to read/write from subd */
 	return multiplex_peer_setup(conn, peer);
@@ -1169,90 +1144,6 @@ static bool want_tor(const struct wireaddr_internal *proposed_wireaddr)
 	return false;
 }
 
-// static void send_peer_message(const struct daemon *daemon) {
-// 	// Placeholder for message sending logic to all peers
-// 	fprintf(stderr, "Peer message sent due to ALT_ADDR_LISTEN.\n");
-
-// 	u8 *msg = towire_peer_alt_address(peer, node_id, alt_address);
-
-// 	peer_write(peer->pps, take(msg));
-// 	fprintf(stderr, "Sent alternative address message to peer.\n");
-	#include <assert.h>
-#include <stdio.h>
-
-// Assuming a serialization function towire_peer_alt_address exists
-// And assuming peer_write sends messages to the peers
-
-// static void send_peer_message(const struct daemon *daemon, const u8 *alt_address) {
-// 	fprintf(stderr, "Preparing to send ALT_ADDR_LISTEN message to all peers.\n");
-
-// 	struct peer *peer;
-// 	struct peer_htable_iter it;
-// 	struct pubkey pb;
-// 	u8 *msg;
-
-// 	// Start iterating from the first peer
-// 	peer = peer_htable_first(daemon->peers, &it);
-// 	while (peer) {
-// 		if (!pubkey_from_node_id(&pb, &peer->id)) {
-// 		    fprintf(stderr, "Failed to get public key for peer %s.\n", fmt_node_id(tmpctx, &peer->id));
-// 		    continue;
-// 		}
-// 		// Create a message for the current peer with the alternative address
-// 		msg = towire_peer_alt_address(tmpctx, &pb, alt_address);  // Assuming tmpctx or some context
-// 		if (msg == NULL) {
-// 			fprintf(stderr, "Failed to create message for peer %s.\n", fmt_node_id(tmpctx, &peer->id));
-// 			continue;
-// 		}
-
-// 		// // Ensure `peer->pps` is the correct member that holds the peer's connection context
-// 		// if (peer_write(peer->pps, take(msg))) {  // Update this line if `pps` is not correct
-// 		if (io_write_wire(conn, take(msg), io_close_cb, NULL);) {  // Update this line if `pps` is not correct
-// 			fprintf(stderr, "Sent ALT_ADDR_LISTEN message to peer %s.\n", fmt_node_id(tmpctx, &peer->id));
-// 		} else {
-// 			fprintf(stderr, "Failed to send ALT_ADDR_LISTEN message to peer %s.\n", fmt_node_id(tmpctx, &peer->id));
-// 		}
-
-// 		// Move to the next peer
-// 		peer = peer_htable_next(daemon->peers, &it);
-// 	}
-// }
-
-void broadcast_alt_address(struct daemon *daemon, const u8 *alt_address) {
-	struct peer *peer;
-	struct peer_htable_iter it;
-
-	fprintf(stderr, "Starting to broadcast alternative address to all peers.\n");
-	peer = peer_htable_first(daemon->peers, &it);
-
-	if (!peer) {
-		fprintf(stderr, "No peers to broadcast to.\n");
-	}
-
-	while (peer) {
-		struct pubkey pb;
-		if (pubkey_from_node_id(&pb, &peer->id)) {
-			fprintf(stderr, "Public key successfully retrieved for peer %s.\n", fmt_node_id(tmpctx, &peer->id));
-			u8 *msg = towire_peer_alt_address(tmpctx, &pb, alt_address);
-			if (msg) {
-				fprintf(stderr, "Message successfully serialized for peer %s.\n", fmt_node_id(tmpctx, &peer->id));
-				if (io_write_wire(peer->to_peer, take(msg), io_close_cb, NULL)) {
-					fprintf(stderr, "Message successfully sent to peer %s.\n", fmt_node_id(tmpctx, &peer->id));
-				} else {
-					fprintf(stderr, "Failed to send message to peer %s.\n", fmt_node_id(tmpctx, &peer->id));
-				}
-			} else {
-				fprintf(stderr, "Failed to serialize message for peer %s.\n", fmt_node_id(tmpctx, &peer->id));
-			}
-		} else {
-			fprintf(stderr, "Failed to get public key for peer %s.\n", fmt_node_id(tmpctx, &peer->id));
-		}
-		peer = peer_htable_next(daemon->peers, &it);
-	}
-}
-
-
-
 /*~ The user can specify three kinds of addresses: ones we bind to but don't
  * announce, ones we announce but don't bind to, and ones we bind to and
  * announce if they seem to be public addresses.
@@ -1304,18 +1195,12 @@ setup_listeners(const tal_t *ctx,
 		add_announceable(announceable, &wa.u.wireaddr.wireaddr);
 	}
 
-
 	/* Now look for listening addresses. */
 	for (size_t i = 0; i < tal_count(proposed_wireaddr); i++) {
 		struct wireaddr_internal wa = proposed_wireaddr[i];
 		bool announce = (proposed_listen_announce[i] & ADDR_ANNOUNCE);
 		if (!(proposed_listen_announce[i] & ADDR_LISTEN))
 			continue;
-
-		if (ALT_ADDR_LISTEN) {
-			broadcast_alt_address(daemon, (const u8 *)"127.22.22.22"); // Send a message to all peers when ALT_ADDR_LISTEN is used
-			// send_peer_message(daemon, (const u8 *)"127.22.22.22"); // Send a message to all peers when ALT_ADDR_LISTEN is used
-		}
 
 		switch (wa.itype) {
 		/* We support UNIX domain sockets, but can't announce */
@@ -1788,8 +1673,6 @@ static void add_gossip_addrs(struct wireaddr_internal **addrs,
 		add_gossip_addrs_bytypes(addrs, normal_addrs, addrhint, types[i]);
 }
 
-typedef void (*peer_connected_cb)(struct daemon *daemon, struct peer *peer);
-
 /*~ Consumes addrhint if not NULL.
  *
  * That's a pretty ugly interface: we should use TAKEN, but we only have one
@@ -1812,8 +1695,6 @@ static void try_connect_peer(struct daemon *daemon,
 		/* Note if we explicitly tried to connect non-transiently */
 		if (!transient)
 			peer->prio = PRIO_DELIBERATE;
-		// if (cb)
-		// 	cb(daemon, peer);
 		return;
 	}
 
@@ -1888,7 +1769,6 @@ static void try_connect_peer(struct daemon *daemon,
 	connect->errors = tal_strdup(connect, "");
 	connect->conn = NULL;
 	connect->transient = transient;
-	// connect->cb = cb;
 	connecting_htable_add(daemon->connecting, connect);
 	tal_add_destructor(connect, destroy_connecting);
 
@@ -1896,48 +1776,21 @@ static void try_connect_peer(struct daemon *daemon,
 	try_connect_one_addr(connect);
 }
 
-// void peer_connected_wrapper(struct daemon *daemon, struct peer *peer) {
-//     // Extract necessary information from the peer or connecting structure
-//     struct io_conn *conn = peer->conn;
-//     struct node_id *id = &peer->id;
-//     struct wireaddr_internal *addr = &peer->addr;
-//     struct crypto_state *cs = &peer->cs;
-//     const u8 *their_features = peer->their_features;
-//     enum is_websocket is_websocket = peer->is_websocket;
-//     bool incoming = peer->incoming;
+void handle_peer_alt_addr(struct peer *peer, const u8 *msg)
+{
+	u8 *alt_addr;
+	struct pubkey peer_id;
 
-//     // Call the actual peer_connected function
-//     peer_connected(conn, daemon, id, addr, NULL, cs, their_features, is_websocket, incoming);
-// }
+	// u32 *timestamp = NULL;
+	if (!fromwire_peer_alt_address(peer, msg, &peer_id, &alt_addr/* , timestamp */)) {
+		master_badmsg(WIRE_PEER_ALT_ADDRESS, msg);
+	}
 
-// void peer_connected_wrapper(struct daemon *daemon, struct peer *peer) {
-// 	struct connecting *connect = find_connecting(daemon, &peer->id);
+	msg = towire_connectd_alt_address(NULL, &peer_id, alt_addr);
+	daemon_conn_send(peer->daemon->master, take(msg));
 
-// 	if (connect) {
-// 		struct io_conn *conn = connect->conn;
-// 		struct node_id *id = &peer->id;
-// 		// struct wireaddr_internal *addr = connect->addrs + connect->addrnum;
-// 		struct crypto_state *cs = &peer->cs;
-// 		const u8 *their_features = connect->their_features; // Adjust this as needed
-// 		enum is_websocket is_websocket = peer->is_websocket;
-// 		bool incoming = connect->incoming;
-
-// 		// Create a wireaddr_internal structure with the hardcoded IP address
-// 		struct wireaddr_internal hardcoded_addr;
-// 		hardcoded_addr.itype = ADDR_INTERNAL_WIREADDR;
-// 		hardcoded_addr.u.wireaddr.wireaddr.type = ADDR_TYPE_IPV4;
-// 		hardcoded_addr.u.wireaddr.wireaddr.addrlen = 4;
-// 		inet_pton(AF_INET, "127.21.21.21", &hardcoded_addr.u.wireaddr.wireaddr.addr);
-// 		hardcoded_addr.u.wireaddr.wireaddr.port = connect->addrs[connect->addrnum].u.wireaddr.wireaddr.port;
-
-
-// 		// Call the actual peer_connected function
-// 		// peer_connected(conn, daemon, id, addr, NULL, cs, their_features, is_websocket, incoming);
-// 		peer_connected(conn, daemon, id, &hardcoded_addr, NULL, cs, their_features, is_websocket, incoming);
-// 	} else {
-// 		status_broken("Failed to find connecting structure for peer");
-// 	}
-// }
+	tal_free(alt_addr);
+}
 
 /* lightningd tells us to connect to a peer by id, with optional addr hint. */
 static void connect_to_peer(struct daemon *daemon, const u8 *msg)
@@ -2250,7 +2103,6 @@ static struct io_plan *recv_req(struct io_conn *conn,
 		goto out;
 
 	case WIRE_CONNECTD_CONNECT_TO_PEER:
-	// case WIRE_PEER_ALT_ADDRESS:
 		connect_to_peer(daemon, msg);
 		goto out;
 
@@ -2323,6 +2175,7 @@ static struct io_plan *recv_req(struct io_conn *conn,
 	case WIRE_CONNECTD_CUSTOMMSG_IN:
 	case WIRE_CONNECTD_PEER_DISCONNECT_DONE:
 	case WIRE_CONNECTD_START_SHUTDOWN_REPLY:
+	case WIRE_CONNECTD_ALT_ADDRESS:
 		break;
 	}
 

@@ -1022,7 +1022,6 @@ static struct migration dbmigrations[] = {
     {SQL("ALTER TABLE channels ADD last_stable_connection BIGINT DEFAULT 0;"), NULL},
     {NULL, migrate_initialize_alias_local},
     {SQL("ALTER TABLE peers ADD COLUMN alt_addr TEXT;"), NULL},
-    {SQL("ALTER TABLE vars ADD COLUMN alt_addr TEXT;"), NULL},
 };
 
 /**

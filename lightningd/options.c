@@ -21,7 +21,6 @@
 #include <common/json_param.h>
 #include <common/version.h>
 #include <common/wireaddr.h>
-// #include <channeld/channeld.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -441,53 +440,18 @@ static char *opt_add_bind_addr(const char *arg, struct lightningd *ld)
 	return opt_add_addr_withtype(arg, ld, ADDR_LISTEN);
 }
 
-// static char *opt_add_alt_addr(const char *arg, struct lightningd *ld) //use bind-addr func instead?
-// {
-// 	return opt_add_addr_withtype(arg, ld, ADDR_LISTEN);
-// }
-
 static char *opt_add_alt_addr(const char *arg, struct lightningd *ld)
 {
-	// struct peer_htable_iter it;
-	// struct peer *peer = peer_htable_first(ld->peers, &it);
+	assert(arg != NULL);
 
-	char *result = opt_add_addr_withtype(arg, ld, ALT_ADDR_LISTEN);
-	opt_add_addr_withtype(arg, ld, ADDR_LISTEN);
+	ld->alt_addr = tal_free(ld->alt_addr);
 
-	// If the addition of the address was successful, broadcast it to all peers
-	fprintf(stderr, "1HERE\n");
-	// fprintf(stderr, "%s\n", result);
-	// if (result == NULL) { // NULL result means success
-		fprintf(stderr, "2HERE\n");
-		// log_debug(ld->log, "Adding alternative address: %s", arg);
-		// if (!ld->wallet || !ld->wallet->db) {
-		// 	log_broken(ld->log, "Invalid wallet or database reference");
-		// 	return NULL;
-		// }
-		// wallet_peer_alt_addr(ld->wallet->db, &ld->id, arg);
-		log_debug(ld->log, "Alternative address added successfully");
-		fprintf(stderr, "3HERE\n");
-		// while (peer) {
-		// if (pubkey_from_node_id(&pubkey, &peer->id)) {
-			// send_peer_alt_address(peer, &pubkey, alt_address);
-		/* } */ /* else {
-			status_peer_unusual(&peer->id, "Failed to obtain public key");
-		} */
-			// Attempt to add the address and listen/announce it based on the type
-	// }
-        // Convert the string arg to a u8 array if necessary. This is a placeholder conversion.
-        // const u8 *alt_address = (const u8 *)arg;
+	ld->alt_addr = (u8 *)tal_strdup(ld, arg);
+	if (ld->alt_addr == NULL) {
+		return tal_fmt(tmpctx, "Failed to allocate memory for address: %s", arg);
+	}
 
-        // send_alt_address_to_all_peers(ld, alt_address);
-
-        // // Optionally log the success of address addition and broadcasting
-        // status_info("Successfully added and broadcasted alternative address: %s", arg);
-    // } else {
-    //     // Log failure to add the address
-    //     status_peer_unusual(&ld->id, "Failed to add alternative address: %s", arg);
-    // }
-
-    return result;
+	return opt_add_addr_withtype(arg, ld, ADDR_LISTEN);
 }
 
 static char *opt_subdaemon(const char *arg, struct lightningd *ld)

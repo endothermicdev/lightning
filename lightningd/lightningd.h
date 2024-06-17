@@ -175,6 +175,9 @@ struct lightningd {
 	/* Do we want to reconnect to other peers having only unannouced channels with us? */
 	bool reconnect_private;
 
+	/* Alt address for peer connections not publicly announced */
+	u8 *alt_addr;
+
 	/* How many outstanding startup connection attempts? */
 	size_t num_startup_connects;
 
