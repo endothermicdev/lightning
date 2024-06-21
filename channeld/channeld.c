@@ -196,11 +196,11 @@ struct peer {
 	bool experimental_upgrade;
 
 	/* Alt address for peer connections not publicly announced */
-	u8 *alt_addr;
+	u8 *our_alt_addr;
 };
 
 static void start_commit_timer(struct peer *peer);
-static void send_peer_alt_address(struct peer *peer);
+static void send_peer_our_alt_address(struct peer *peer);
 
 static void billboard_update(const struct peer *peer)
 {
@@ -542,11 +542,11 @@ static void handle_peer_splice_locked(struct peer *peer, const u8 *msg)
 	check_mutual_splice_locked(peer);
 }
 
-static void send_peer_alt_address(struct peer *peer) {
+static void send_peer_our_alt_address(struct peer *peer) {
 	struct pubkey node_id;
 
 	if (pubkey_from_node_id(&node_id, &peer->id)) {
-		u8 *msg = towire_peer_alt_address(peer, &node_id, peer->alt_addr);
+		u8 *msg = towire_peer_alt_address(peer, &node_id, peer->our_alt_addr);
 		peer_write(peer->pps, take(msg));
 	}
 }
@@ -4179,8 +4179,8 @@ static void peer_in(struct peer *peer, const u8 *msg)
 
 	check_tx_abort(peer, msg);
 
-	if (peer->alt_addr)
-		send_peer_alt_address(peer);
+	if (peer->our_alt_addr)
+		send_peer_our_alt_address(peer);
 
 	/* If we're in STFU mode and aren't waiting for a STFU mode
 	 * specific message, the only valid message was tx_abort */
@@ -5890,7 +5890,7 @@ static void init_channel(struct peer *peer)
 				    &peer->experimental_upgrade,
 				    &peer->splice_state->inflights,
 				    &peer->local_alias,
-				    &peer->alt_addr,
+				    &peer->our_alt_addr,
 				    &peer->id)) {
 		master_badmsg(WIRE_CHANNELD_INIT, msg);
 	}

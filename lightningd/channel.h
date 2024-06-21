@@ -798,4 +798,5 @@ const u8 *channel_update_for_error(const tal_t *ctx,
 
 struct amount_msat htlc_max_possible_send(const struct channel *channel);
 
+
 #endif /* LIGHTNING_LIGHTNINGD_CHANNEL_H */

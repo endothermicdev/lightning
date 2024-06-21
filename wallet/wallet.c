@@ -1027,7 +1027,7 @@ done:
 	return peer;
 }
 
-void wallet_peer_alt_addr(struct db *db, const struct node_id *node_id, const char *alt_addr)
+void wallet_add_peer_alt_addr(struct db *db, const struct node_id *node_id, const char *alt_addr)
 {
 	struct db_stmt *stmt;
 
@@ -1039,6 +1039,77 @@ void wallet_peer_alt_addr(struct db *db, const struct node_id *node_id, const ch
 	}
 	db_bind_node_id(stmt, node_id);
 	db_exec_prepared_v2(take(stmt));
+}
+
+static struct wireaddr_internal *handle_alt_addr_failure(struct wallet *w, struct db_stmt *stmt, bool transaction_started)
+{
+	if (stmt)
+		tal_free(stmt);
+	if (transaction_started)
+		db_commit_transaction(w->db);
+
+	return NULL;
+}
+
+struct wireaddr_internal *wallet_get_peer_alt_addr(struct wallet *w, const struct node_id *node_id)
+{
+	struct db_stmt *stmt;
+	struct wireaddr_internal *alt_address = NULL;
+	bool transaction_started = false;
+
+	if (!db_in_transaction(w->db)) {
+		db_begin_transaction(w->db);
+		transaction_started = true;
+	}
+
+	stmt = db_prepare_v2(w->db, SQL("SELECT alt_addr FROM peers WHERE node_id=?"));
+	if (!stmt) {
+		log_broken(w->log, "Failed to prepare statement for node_id %s", fmt_node_id(tmpctx, node_id));
+		return handle_alt_addr_failure(w, stmt, transaction_started);
+	}
+
+	db_bind_node_id(stmt, node_id);
+	db_query_prepared(stmt);
+
+	if (!db_step(stmt)) {
+		log_broken(w->log, "No alternative address found for peer %s", fmt_node_id(tmpctx, node_id));
+		return handle_alt_addr_failure(w, stmt, transaction_started);
+	}
+
+	const char *addr_str = db_col_strdup(tmpctx, stmt, "alt_addr");
+	if (!addr_str) {
+		log_broken(w->log, "No address string retrieved for peer %s", fmt_node_id(tmpctx, node_id));
+		return handle_alt_addr_failure(w, stmt, transaction_started);
+	}
+
+	if (*addr_str == '\0') {
+		log_broken(w->log, "Empty address string retrieved for peer %s", fmt_node_id(tmpctx, node_id));
+		tal_free(addr_str);
+		return handle_alt_addr_failure(w, stmt, transaction_started);
+	}
+
+	alt_address = tal(tmpctx, struct wireaddr_internal);
+	if (!alt_address) {
+		log_broken(w->log, "Memory allocation failed for alternative address of peer %s", fmt_node_id(tmpctx, node_id));
+		tal_free(addr_str);
+		return handle_alt_addr_failure(w, stmt, transaction_started);
+	}
+
+	const char *err = parse_wireaddr_internal(tmpctx, addr_str, 0, false, alt_address);
+	if (err) {
+		log_broken(w->log, "Invalid alternative address %s for peer %s: %s",
+		        addr_str, fmt_node_id(tmpctx, node_id), err);
+		tal_free(alt_address);
+		alt_address = NULL;
+	}
+
+	tal_free(addr_str);
+	tal_free(stmt);
+
+	if (transaction_started)
+		db_commit_transaction(w->db);
+
+	return alt_address;
 }
 
 static struct bitcoin_signature *

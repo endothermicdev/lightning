@@ -335,6 +335,9 @@ static void try_connect(const tal_t *ctx,
 {
 	struct delayed_reconnect *d;
 	struct peer *peer;
+	const struct wireaddr_internal *alt_addr;
+
+	alt_addr = wallet_get_peer_alt_addr(ld->wallet, id);
 
 	/* Don't stack, unless this is an instant reconnect */
 	d = delayed_reconnect_map_get(ld->delayed_reconnect_map, id);
@@ -349,7 +352,7 @@ static void try_connect(const tal_t *ctx,
 	d = tal(ctx, struct delayed_reconnect);
 	d->ld = ld;
 	d->id = *id;
-	d->addrhint = tal_dup_or_null(d, struct wireaddr_internal, addrhint);
+	d->addrhint = tal_dup_or_null(d, struct wireaddr_internal, alt_addr ? alt_addr : addrhint);
 	d->dns_fallback = dns_fallback;
 	delayed_reconnect_map_add(ld->delayed_reconnect_map, d);
 	tal_add_destructor(d, destroy_delayed_reconnect);
@@ -364,9 +367,6 @@ static void try_connect(const tal_t *ctx,
 	/* Update any channel billboards */
 	peer = peer_by_id(ld, id);
 	if (peer) {
-		// struct pubkey pubkey;
-		// if (pubkey_from_node_id(&pubkey, id)) {
-		// 	send_peer_alt_address(peer, &pubkey, (const u8 *)"127.21.21.21"); // THIS MIGHT BE THE RIGHT PLACE IN THE END, NEED TO SEND ANOTHER MSG FROM MASTER -> CHANNELD then????
 		struct channel *channel;
 		list_for_each(&peer->channels, channel, list) {
 			if (!channel_state_wants_peercomms(channel->state))
@@ -559,20 +559,20 @@ static void handle_custommsg_in(struct lightningd *ld, const u8 *msg)
 	plugin_hook_call_custommsg(ld, NULL, p);
 }
 
-static void handle_alt_addr_in(struct lightningd *ld, const u8 *msg)
+static void handle_peer_alt_addr_in(struct lightningd *ld, const u8 *msg)
 {
-	struct pubkey node_id;
-	struct node_id id;
-	u8 *alt_addr;
+	struct pubkey peer_node_id;
+	u8 *peer_alt_addr;
 
-	if (!fromwire_connectd_alt_address(tmpctx, msg, &node_id, &alt_addr)) {
+	if (!fromwire_connectd_alt_address(tmpctx, msg, &peer_node_id, &peer_alt_addr)) {
 		log_broken(ld->log, "Malformed peer_alt_addr_msg: %s",
 								tal_hex(tmpctx, msg));
 		return;
 	}
 
-	node_id_from_pubkey(&id, &node_id);
-	wallet_peer_alt_addr(ld->wallet->db, &id, (char *)alt_addr);
+	struct node_id id;
+	node_id_from_pubkey(&id, &peer_node_id);
+	wallet_add_peer_alt_addr(ld->wallet->db, &id, (char *)peer_alt_addr);
 }
 
 static void connectd_start_shutdown_reply(struct subd *connectd,
@@ -666,7 +666,7 @@ static unsigned connectd_msg(struct subd *connectd, const u8 *msg, const int *fd
 		break;
 
 	case WIRE_CONNECTD_ALT_ADDRESS:
-		handle_alt_addr_in(connectd->ld, msg);
+		handle_peer_alt_addr_in(connectd->ld, msg);
 		break;
 	}
 	return 0;

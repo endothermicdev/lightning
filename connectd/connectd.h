@@ -61,6 +61,7 @@ struct peer {
 
 	/* The pubkey of the node */
 	struct node_id id;
+
 	/* Counters and keys for symmetric crypto */
 	struct crypto_state cs;
 
@@ -294,6 +295,6 @@ void destroy_peer(struct peer *peer);
 void close_random_connection(struct daemon *daemon);
 
 /* Handles alternative address message from peer. */
-void handle_peer_alt_addr(struct peer *peer, const u8 *msg);
+void handle_peer_alt_address(struct peer *peer, const u8 *msg);
 
 #endif /* LIGHTNING_CONNECTD_CONNECTD_H */

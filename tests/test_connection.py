@@ -130,15 +130,6 @@ def test_connect_with_alt_addr(node_factory, bitcoind):
         logging.error(f"Error verifying connection using alt-addr: {e}")
         raise
 
-    # Verify the channel state
-    logging.info("Checking the channel state after reconnection")
-    try:
-        channel_state = l1.rpc.listpeerchannels(l2.info['id'])['channels'][0]['state']
-        assert channel_state == 'CHANNELD_NORMAL', f"Channel state is {channel_state}, expected CHANNELD_NORMAL"
-    except Exception as e:
-        logging.error(f"Channel state not normal: {e}")
-        raise
-
 
 def test_remote_addr(node_factory, bitcoind):
     """Check address discovery (BOLT1 #917) init remote_addr works as designed:

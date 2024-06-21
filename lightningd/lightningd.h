@@ -175,9 +175,6 @@ struct lightningd {
 	/* Do we want to reconnect to other peers having only unannouced channels with us? */
 	bool reconnect_private;
 
-	/* Alt address for peer connections not publicly announced */
-	u8 *alt_addr;
-
 	/* How many outstanding startup connection attempts? */
 	size_t num_startup_connects;
 
@@ -195,6 +192,9 @@ struct lightningd {
 	/* Actual bindings and announceables from connectd */
 	struct wireaddr_internal *binding;
 	struct wireaddr *announceable;
+
+	/* Alternative address for peer connections not publicly announced */
+	u8 *our_alt_addr;
 
 	/* Current node announcement (if any) */
 	const u8 *node_announcement;

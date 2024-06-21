@@ -1185,7 +1185,7 @@
             ],
             "properties": {
               "values_str": {
-								"added": "v24.05",
+                "added": "v24.05",
                 "type": "array",
                 "items": {
                   "type": "string",

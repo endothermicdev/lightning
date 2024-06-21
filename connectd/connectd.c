@@ -506,7 +506,24 @@ static struct io_plan *connection_in(struct io_conn *conn,
 
 	conn_in_arg.daemon = daemon;
 	conn_in_arg.is_websocket = false;
+
 	return conn_in(conn, &conn_in_arg);
+}
+
+void handle_peer_alt_address(struct peer *peer, const u8 *msg)
+{
+	u8 *peer_alt_addr;
+	struct pubkey peer_id;
+	/* u32 *timestamp = NULL; */ /* TODO */
+
+	if (!fromwire_peer_alt_address(peer, msg, &peer_id, &peer_alt_addr/* , timestamp */)) {
+		master_badmsg(WIRE_PEER_ALT_ADDRESS, msg);
+	}
+
+	msg = towire_connectd_alt_address(NULL, &peer_id, peer_alt_addr);
+	daemon_conn_send(peer->daemon->master, take(msg));
+
+	tal_free(peer_alt_addr);
 }
 
 /*~ <hello>I speak web socket</hello>.
@@ -1774,22 +1791,6 @@ static void try_connect_peer(struct daemon *daemon,
 
 	/* Now we kick it off by recursively trying connect->addrs[connect->addrnum] */
 	try_connect_one_addr(connect);
-}
-
-void handle_peer_alt_addr(struct peer *peer, const u8 *msg)
-{
-	u8 *alt_addr;
-	struct pubkey peer_id;
-
-	// u32 *timestamp = NULL;
-	if (!fromwire_peer_alt_address(peer, msg, &peer_id, &alt_addr/* , timestamp */)) {
-		master_badmsg(WIRE_PEER_ALT_ADDRESS, msg);
-	}
-
-	msg = towire_connectd_alt_address(NULL, &peer_id, alt_addr);
-	daemon_conn_send(peer->daemon->master, take(msg));
-
-	tal_free(alt_addr);
 }
 
 /* lightningd tells us to connect to a peer by id, with optional addr hint. */

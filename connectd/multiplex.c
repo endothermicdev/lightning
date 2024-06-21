@@ -772,8 +772,8 @@ static bool handle_message_locally(struct peer *peer, const u8 *msg)
 	} else if (type == WIRE_ONION_MESSAGE) {
 		handle_onion_message(peer->daemon, peer, msg);
 		return true;
-	} else if (type == WIRE_PEER_ALT_ADDRESS) { // IS THIS THE RIGHT PLACE ?? IT WORKS BUT...
-		handle_peer_alt_addr(peer, msg);
+	} else if (type == WIRE_PEER_ALT_ADDRESS) {
+		handle_peer_alt_address(peer, msg);
 		return true;
 	} else if (handle_custommsg(peer->daemon, peer, msg)) {
 		return true;

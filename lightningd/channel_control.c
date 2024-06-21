@@ -1726,7 +1726,7 @@ bool peer_start_channeld(struct channel *channel,
 				       cast_const2(const struct inflight **,
 						   inflights),
 				       *channel->alias[LOCAL],
-				       ld->alt_addr,
+				       ld->our_alt_addr,
 				       &ld->id);
 
 	/* We don't expect a response: we are triggered by funding_depth_cb. */

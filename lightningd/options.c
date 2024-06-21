@@ -444,12 +444,8 @@ static char *opt_add_alt_addr(const char *arg, struct lightningd *ld)
 {
 	assert(arg != NULL);
 
-	ld->alt_addr = tal_free(ld->alt_addr);
-
-	ld->alt_addr = (u8 *)tal_strdup(ld, arg);
-	if (ld->alt_addr == NULL) {
-		return tal_fmt(tmpctx, "Failed to allocate memory for address: %s", arg);
-	}
+	ld->our_alt_addr = tal_free(ld->our_alt_addr);
+	ld->our_alt_addr = (u8 *)tal_strdup(ld, arg);
 
 	return opt_add_addr_withtype(arg, ld, ADDR_LISTEN);
 }

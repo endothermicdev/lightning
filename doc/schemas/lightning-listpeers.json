@@ -279,6 +279,7 @@
                       ]
                     }
                   },
+                  "alt_addr": {},
                   "remote_addr": {
                     "type": "string",
                     "description": [
@@ -323,6 +324,7 @@
             "netaddr": [
               "127.0.0.1:44619"
             ],
+            "alt_addr": "127.0.0.21:7171",
             "features": "08a0000a0a69a2"
           }
         ]
@@ -346,6 +348,7 @@
             "netaddr": [
               "127.0.0.1:48862"
             ],
+            "alt_addr": "127.0.0.21:7171",
             "features": "08a0000a0a69a2"
           }
         ]
