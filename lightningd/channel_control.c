@@ -1468,6 +1468,7 @@ static unsigned channel_msg(struct subd *sd, const u8 *msg, const int *fds)
 		break;
 	/* And we never get these from channeld. */
 	case WIRE_CHANNELD_INIT:
+	case WIRE_CHANNELD_ALT_ADDRESS:
 	case WIRE_CHANNELD_FUNDING_DEPTH:
 	case WIRE_CHANNELD_OFFER_HTLC:
 	case WIRE_CHANNELD_FULFILL_HTLC:
@@ -2341,3 +2342,63 @@ static const struct json_command dev_quiesce_command = {
 	.dev_only = true,
 };
 AUTODATA(json_command, &dev_quiesce_command);
+
+static struct command_result *json_alt_addr(struct command *cmd,
+					    const char *buffer,
+					    const jsmntok_t *obj UNNEEDED,
+					    const jsmntok_t *params)
+{
+	struct node_id *peer_node_id;
+	struct pubkey p_pk; //maybe take this away again (send node_id struct instead) to clean it up?
+	struct peer *peer;
+	struct channel *channel;
+	const char *our_alt_addr;
+	bool more_than_one;
+
+	if (!param_check(cmd, buffer, params,
+			 p_req("node_id", param_node_id, &peer_node_id),
+			 p_req("alt_addr", param_string, &our_alt_addr),
+			 NULL))
+		return command_param_failed();
+
+	peer = peer_by_id(cmd->ld, peer_node_id);
+	if (!peer) {
+		return command_fail(cmd, JSONRPC2_INVALID_REQUEST,
+				    "No such peer: %s",
+				    fmt_node_id(cmd, peer_node_id));
+	}
+
+	channel = peer_any_channel(peer, channel_state_can_add_htlc, &more_than_one);
+	if (!channel || !channel->owner)
+		return command_fail(cmd, LIGHTNINGD, "Peer bad state");
+	/* This is a dev command: fix the api if you need this! */
+	if (more_than_one)
+		return command_fail(cmd, LIGHTNINGD, "More than one channel");
+
+	if (command_check_only(cmd))
+		return command_check_done(cmd);
+
+	if (pubkey_from_node_id(&p_pk, peer_node_id)) {
+		//TODO, make 'our_alt_addr into a double pointer, array of arrays, for sending many.
+		subd_send_msg(channel->owner, take(towire_channeld_alt_address(peer, &p_pk, (u8 *)our_alt_addr)));
+	}
+
+	//TODO, After adding the 'our_alt_addr' here,
+	// we need to check against that when accepting the incoming connection.
+	//ADD our_alt_addr into our db under the peer with the id we specify here to create the whitelist for later confirmation when accepting incomming connection.
+	wallet_add_alt_addr(cmd->ld->wallet->db, peer_node_id, our_alt_addr, true);
+
+	//TODO, We need to add this to 'listnodes' command too!
+	//TODO, How can we send the peer msg without having a channel to the peer?
+
+	return command_success(cmd, json_stream_success(cmd));
+}
+
+static const struct json_command alt_addr_command = {
+	"alt-addr",
+	"developer",
+	json_alt_addr,
+	"Select an alternative private address for peer-to-peer connections",
+	.dev_only = true,
+};
+AUTODATA(json_command, &alt_addr_command);

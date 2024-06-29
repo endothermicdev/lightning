@@ -520,8 +520,7 @@ void handle_peer_alt_address(struct peer *peer, const u8 *msg)
 		master_badmsg(WIRE_PEER_ALT_ADDRESS, msg);
 	}
 
-	msg = towire_connectd_alt_address(NULL, &peer_id, peer_alt_addr);
-	daemon_conn_send(peer->daemon->master, take(msg));
+	daemon_conn_send(peer->daemon->master, take(towire_connectd_alt_address(NULL, &peer_id, peer_alt_addr)));
 
 	tal_free(peer_alt_addr);
 }

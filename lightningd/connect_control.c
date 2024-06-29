@@ -333,11 +333,23 @@ static void try_connect(const tal_t *ctx,
 			const struct wireaddr_internal *addrhint,
 			bool dns_fallback)
 {
+	const struct wireaddr_internal *peer_alt_addr = NULL;
 	struct delayed_reconnect *d;
 	struct peer *peer;
-	const struct wireaddr_internal *alt_addr;
 
-	alt_addr = wallet_get_peer_alt_addr(ld->wallet, id);
+	/* This is where we handle the whitelist of alt addr,
+	TODO: whitelist of addr(s!)*/
+	if (ld->alt_bind_addr) {
+		peer_alt_addr = wallet_get_peer_alt_addr(ld->wallet, id);
+		/* if (peer_alt_addr) { //TODO: Fix so the whitelist works! It wasn't here...
+			const char *formatted_peer_addr = fmt_wireaddr_internal(ctx, peer_alt_addr);
+			if (strcmp((char *)ld->alt_bind_addr, formatted_peer_addr) != 0) {
+				log_debug(ld->log, "No match for alt_bind_addr and peer_alt_addr: '%s' != '%s'\n", ld->alt_bind_addr, formatted_peer_addr);
+				tal_free(peer_alt_addr);
+				peer_alt_addr = NULL;
+			}
+		} */
+	}
 
 	/* Don't stack, unless this is an instant reconnect */
 	d = delayed_reconnect_map_get(ld->delayed_reconnect_map, id);
@@ -352,7 +364,7 @@ static void try_connect(const tal_t *ctx,
 	d = tal(ctx, struct delayed_reconnect);
 	d->ld = ld;
 	d->id = *id;
-	d->addrhint = tal_dup_or_null(d, struct wireaddr_internal, alt_addr ? alt_addr : addrhint);
+	d->addrhint = tal_dup_or_null(d, struct wireaddr_internal, peer_alt_addr ? peer_alt_addr : addrhint);
 	d->dns_fallback = dns_fallback;
 	delayed_reconnect_map_add(ld->delayed_reconnect_map, d);
 	tal_add_destructor(d, destroy_delayed_reconnect);
@@ -566,13 +578,13 @@ static void handle_peer_alt_addr_in(struct lightningd *ld, const u8 *msg)
 
 	if (!fromwire_connectd_alt_address(tmpctx, msg, &peer_node_id, &peer_alt_addr)) {
 		log_broken(ld->log, "Malformed peer_alt_addr_msg: %s",
-								tal_hex(tmpctx, msg));
+						      tal_hex(tmpctx, msg));
 		return;
 	}
 
 	struct node_id id;
 	node_id_from_pubkey(&id, &peer_node_id);
-	wallet_add_peer_alt_addr(ld->wallet->db, &id, (char *)peer_alt_addr);
+	wallet_add_alt_addr(ld->wallet->db, &id, (char *)peer_alt_addr, false);
 }
 
 static void connectd_start_shutdown_reply(struct subd *connectd,

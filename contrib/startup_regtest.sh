@@ -184,7 +184,10 @@ start_nodes() {
 		log-level=debug
 		log-file=$LIGHTNING_DIR/l$i/log
 		addr=localhost:$socket
-		alt-addr=127.21.21.21:$socket
+		# alt-addr=127.20.20.20:$socket #TODO, Test what happends when both default and RPC are used.
+		alt-bind-addr=127.21.21.21:$socket
+		alt-bind-addr=127.22.22.22:$socket
+		bind-addr=127.29.29.29:$socket
 		allow-deprecated-apis=false
 		developer
 		dev-fast-gossip

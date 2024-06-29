@@ -352,3 +352,9 @@ msgdata,channeld_upgraded,new_type,channel_type,
 # Tell peer about our latest and greatest blockheight.
 msgtype,channeld_blockheight,1012
 msgdata,channeld_blockheight,blockheight,u32,
+
+# master -> channeld Send peer alternative addresses
+msgtype,channeld_alt_address,1014
+msgdata,channeld_alt_address,node_id,point,
+msgdata,channeld_alt_address,alt_addr_len,u16,
+msgdata,channeld_alt_address,alt_addr,u8,alt_addr_len,

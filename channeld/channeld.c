@@ -545,10 +545,8 @@ static void handle_peer_splice_locked(struct peer *peer, const u8 *msg)
 static void send_peer_our_alt_address(struct peer *peer) {
 	struct pubkey node_id;
 
-	if (pubkey_from_node_id(&node_id, &peer->id)) {
-		u8 *msg = towire_peer_alt_address(peer, &node_id, peer->our_alt_addr);
-		peer_write(peer->pps, take(msg));
-	}
+	if (pubkey_from_node_id(&node_id, &peer->id))
+		peer_write(peer->pps, take(towire_peer_alt_address(peer, &node_id, peer->our_alt_addr)));
 }
 
 static void handle_peer_channel_ready(struct peer *peer, const u8 *msg)
@@ -5702,11 +5700,27 @@ static void handle_dev_quiesce(struct peer *peer, const u8 *msg)
 	maybe_send_stfu(peer);
 }
 
+static void handle_channeld_alt_address(struct peer *peer, const u8 *msg)
+{
+	struct pubkey peer_pk;
+	u8 *our_alt_addr;
+
+	if (!fromwire_channeld_alt_address(peer, msg, &peer_pk, &our_alt_addr)) {
+		master_badmsg(WIRE_CHANNELD_ALT_ADDRESS, msg);
+	}
+
+	if (pubkey_from_node_id(&peer_pk, &peer->id))
+		peer_write(peer->pps, take(towire_peer_alt_address(peer, &peer_pk, our_alt_addr)));
+}
+
 static void req_in(struct peer *peer, const u8 *msg)
 {
 	enum channeld_wire t = fromwire_peektype(msg);
 
 	switch (t) {
+	case WIRE_CHANNELD_ALT_ADDRESS:
+		handle_channeld_alt_address(peer, msg);
+		return;
 	case WIRE_CHANNELD_FUNDING_DEPTH:
 		handle_funding_depth(peer, msg);
 		return;

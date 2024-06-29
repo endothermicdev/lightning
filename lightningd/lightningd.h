@@ -194,7 +194,10 @@ struct lightningd {
 	struct wireaddr *announceable;
 
 	/* Alternative address for peer connections not publicly announced */
-	u8 *our_alt_addr;
+	u8 *our_alt_addr; //TODO, make into double pointer
+
+	/* Alternative binding address for peer connections not publicly announced */
+	u8 *alt_bind_addr; //TODO, make into double pointer
 
 	/* Current node announcement (if any) */
 	const u8 *node_announcement;

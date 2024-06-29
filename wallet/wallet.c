@@ -1027,16 +1027,21 @@ done:
 	return peer;
 }
 
-void wallet_add_peer_alt_addr(struct db *db, const struct node_id *node_id, const char *alt_addr)
+void wallet_add_alt_addr(struct db *db, const struct node_id *node_id, const char *alt_addr, bool is_our_addr)
 {
 	struct db_stmt *stmt;
 
-	if (alt_addr != NULL) {
-		stmt = db_prepare_v2(db, SQL("UPDATE peers SET alt_addr=? WHERE node_id=?"));
-		db_bind_text(stmt, alt_addr);
-	} else {
-		stmt = db_prepare_v2(db, SQL("UPDATE peers SET alt_addr=NULL WHERE node_id=?"));
+	if (!alt_addr) {
+		return;
 	}
+
+	if (is_our_addr) {
+		stmt = db_prepare_v2(db, SQL("UPDATE peers SET our_alt_addr=? WHERE node_id=?"));
+	} else {
+		stmt = db_prepare_v2(db, SQL("UPDATE peers SET peer_alt_addr=? WHERE node_id=?"));
+	}
+
+	db_bind_text(stmt, alt_addr);
 	db_bind_node_id(stmt, node_id);
 	db_exec_prepared_v2(take(stmt));
 }
@@ -1062,9 +1067,9 @@ struct wireaddr_internal *wallet_get_peer_alt_addr(struct wallet *w, const struc
 		transaction_started = true;
 	}
 
-	stmt = db_prepare_v2(w->db, SQL("SELECT alt_addr FROM peers WHERE node_id=?"));
+	stmt = db_prepare_v2(w->db, SQL("SELECT peer_alt_addr FROM peers WHERE node_id = ?"));
 	if (!stmt) {
-		log_broken(w->log, "Failed to prepare statement for node_id %s", fmt_node_id(tmpctx, node_id));
+		log_debug(w->log, "Failed to prepare statement for node_id %s", fmt_node_id(tmpctx, node_id));
 		return handle_alt_addr_failure(w, stmt, transaction_started);
 	}
 
@@ -1072,40 +1077,32 @@ struct wireaddr_internal *wallet_get_peer_alt_addr(struct wallet *w, const struc
 	db_query_prepared(stmt);
 
 	if (!db_step(stmt)) {
-		log_broken(w->log, "No alternative address found for peer %s", fmt_node_id(tmpctx, node_id));
+		log_debug(w->log, "No alternative address found for peer %s", fmt_node_id(tmpctx, node_id));
 		return handle_alt_addr_failure(w, stmt, transaction_started);
 	}
 
-	const char *addr_str = db_col_strdup(tmpctx, stmt, "alt_addr");
+	const char *addr_str = db_col_strdup(tmpctx, stmt, "peer_alt_addr");
 	if (!addr_str) {
-		log_broken(w->log, "No address string retrieved for peer %s", fmt_node_id(tmpctx, node_id));
+		log_debug(w->log, "Invalid address string retrieved for peer %s", fmt_node_id(tmpctx, node_id));
 		return handle_alt_addr_failure(w, stmt, transaction_started);
 	}
 
-	if (*addr_str == '\0') {
-		log_broken(w->log, "Empty address string retrieved for peer %s", fmt_node_id(tmpctx, node_id));
-		tal_free(addr_str);
+	if (*addr_str == '\0') { //TODO: This will make the list empty. Need to implement this.
+		log_debug(w->log, "Empty address string retrieved for peer %s", fmt_node_id(tmpctx, node_id));
 		return handle_alt_addr_failure(w, stmt, transaction_started);
 	}
 
 	alt_address = tal(tmpctx, struct wireaddr_internal);
-	if (!alt_address) {
-		log_broken(w->log, "Memory allocation failed for alternative address of peer %s", fmt_node_id(tmpctx, node_id));
-		tal_free(addr_str);
-		return handle_alt_addr_failure(w, stmt, transaction_started);
-	}
-
-	const char *err = parse_wireaddr_internal(tmpctx, addr_str, 0, false, alt_address);
+	const char *err = parse_wireaddr_internal(tmpctx, addr_str, chainparams_get_ln_port(chainparams), false, alt_address);
 	if (err) {
-		log_broken(w->log, "Invalid alternative address %s for peer %s: %s",
-		        addr_str, fmt_node_id(tmpctx, node_id), err);
+		log_debug(w->log, "Invalid alternative address %s for peer %s: %s",
+			        addr_str, fmt_node_id(tmpctx, node_id), err);
 		tal_free(alt_address);
 		alt_address = NULL;
 	}
 
 	tal_free(addr_str);
 	tal_free(stmt);
-
 	if (transaction_started)
 		db_commit_transaction(w->db);
 
