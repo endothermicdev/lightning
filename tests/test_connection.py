@@ -71,64 +71,47 @@ def test_connect_basic(node_factory):
 
 
 def test_connect_with_alt_addr(node_factory, bitcoind):
-    logging.basicConfig(level=logging.INFO)
-    
-    # Set up nodes
-    logging.info("Setting up two nodes with the capability to reconnect")
-    l1 = node_factory.get_node(may_reconnect=True)
-    l2 = node_factory.get_node(may_reconnect=True)
-
-    # Initial connection
-    logging.info(f"Initial connection from l1 to l2 using localhost and port {l2.port}")
-    l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
-
-    # Checking initial connection state
-    logging.info("Waiting for both nodes to report they are connected...")
-    wait_for(lambda: only_one(l1.rpc.listpeers(l2.info['id'])['peers'])['connected'])
-    wait_for(lambda: only_one(l2.rpc.listpeers(l1.info['id'])['peers'])['connected'])
-
-    # Fund channel and log the event
-    logging.info(f"Funding channel between l1 and l2 with 10**6 satoshis")
-    l1.fundchannel(l2, 10**6)
-    
+    """Test that a node can provide an alternative connection address to a
+    peer, bind and receive an inbound connection on that address. Test that
+    a connecting node will use a provided alternate connection address when
+    reconnecting to a peer."""
     # Modifying node configuration to use an alternative address
-    alt_addr = '127.21.21.21'
-    logging.info(f"Stopping l2 to change its address to {alt_addr}:{l2.port}")
-    l2.stop()
-    # l2.daemon.opts['bind-addr'] = f'{alt_addr}:{l2.port}'
-    l2.daemon.opts['alt-addr'] = f'{alt_addr}:{l2.port}'
-    l2.start()
-    logging.info("Restarted l2 with alternative address")
+    alt_addr = '127.0.0.1'
+    # Setting up two nodes with the capability to reconnect
+    port = node_factory.get_unused_port()
+    print(f"reserved port {port}")
+    opts = {'may_reconnect': True,
+            'dev-no-reconnect': None,
+            'alt-addr': f'{alt_addr}:{port}'}
+    l1, l2 = node_factory.line_graph(2, fundchannel=True, opts=[{'may_reconnect': True}, opts])
+
+    print(l1.rpc.getinfo())
+    print(l2.rpc.getinfo())
+    # FIXME: search logs to verify alternate address message received
 
     # Verification of the alternative address setting
-    logging.info("Verifying alternative address setting on l2")
-    try:
-        binding = l2.rpc.getinfo()['binding']
-        assert len(binding) > 0, "No binding found for l2"
-        assert any(bind['address'] == alt_addr for bind in binding), f"Expected alt-addr {alt_addr}, found {binding}"
-    except Exception as e:
-        logging.error(f"Alternative address not set correctly: {e}")
-        raise
+    binding = l2.rpc.getinfo()['binding']
+    assert len(binding) > 0, "No binding found for l2"
+    # l2 should have automatically bound the alt-addr.
+    #print('listpeers output:\n', l1.rpc.listpeers(l2.info['id']))
+    assert only_one(l1.rpc.listpeers(l2.info['id'])['peers'])['alt_addr'] == f'{alt_addr}:{port}'
+    assert any(bind['address'] == alt_addr for bind in binding), f"Expected alt-addr {alt_addr}, found {binding}"
+    assert any(bind['port'] == port for bind in binding), f"Expected alt-addr {alt_addr}, found {binding}"
 
-    # Reconnection using the alternative address
-    logging.info("Attempting to reconnect using the new alternative address")
-    try:
-        if any(peer['connected'] for peer in l1.rpc.listpeers()['peers']):
-            l1.rpc.disconnect(l2.info['id'], force=True)
-        l1.rpc.connect(l2.info['id'], alt_addr, l2.port)
-    except Exception as e:
-        logging.error(f"Error reconnecting nodes using alternative address: {e}")
-        raise
-    
+    # Test manual reconnection using the alternative address
+    l1.rpc.disconnect(l2.info['id'], force=True)
+    l1.rpc.connect(l2.info['id'], alt_addr, l2.port)
+
+    assert only_one(l1.rpc.listpeers(l2.info['id'])['peers'])['connected'] == True
+
+    # l1 uses l2's alternate address when reconnecting automatically
+    l1.restart()
+    wait_for(lambda: only_one(l2.rpc.listpeers(l1.info['id'])['peers'])['connected'], timeout=10)
+
     # Verify the connection using the new address
-    logging.info("Verifying new connection details")
-    try:
-        connected_peer = l1.rpc.getpeer(l2.info['id'])
-        assert connected_peer['connected'], "Peers not connected"
-        assert connected_peer['netaddr'][0].startswith(alt_addr), f"Connection not using alt-addr: {connected_peer['netaddr'][0]}"
-    except Exception as e:
-        logging.error(f"Error verifying connection using alt-addr: {e}")
-        raise
+    connected_peer = l1.rpc.getpeer(l2.info['id'])
+    assert connected_peer['connected'], "Peers not connected"
+    assert connected_peer['netaddr'] == f'{alt_addr}:{port}'
 
 
 def test_connect_with_alt_addr_rpc(node_factory, bitcoind):
