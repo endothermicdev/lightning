@@ -979,9 +979,16 @@ static struct block *new_block(struct chain_topology *topo,
 	struct block *b = tal(topo, struct block);
 
 	bitcoin_block_blkid(blk, &b->blkid);
-	log_debug(topo->log, "Adding block %u: %s",
-		  height,
-		  fmt_bitcoin_blkid(tmpctx, &b->blkid));
+	/* If rescan was set in the config, we should periodically log the
+	 * progress regardless of log level setting. */
+	if (topo->ld->config->rescan > 15)
+		log_info(topo->log, "Adding block %u: %s",
+			 height,
+			 fmt_bitcoin_blkid(tmpctx, &b->blkid));
+	else
+		log_debug(topo->log, "Adding block %u: %s",
+			  height,
+			  fmt_bitcoin_blkid(tmpctx, &b->blkid));
 	assert(!block_map_get(topo->block_map, &b->blkid));
 	b->next = NULL;
 	b->prev = NULL;
