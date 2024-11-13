@@ -1317,7 +1317,7 @@ struct gossmap *gossmap_manage_get_gossmap(struct gossmap_manage *gm)
  * "Look at me!"  "Look at me!!!!".
  */
 /* Statistically, how many peers to we tell about each channel? */
-#define GOSSIP_SPAM_REDUNDANCY 5
+#define GOSSIP_SPAM_REDUNDANCY 50
 
 void gossmap_manage_new_peer(struct gossmap_manage *gm,
 			     const struct node_id *peer)
