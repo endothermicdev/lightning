@@ -79,6 +79,9 @@ struct daemon {
 
 	/* Speed up pruning. */
 	bool dev_fast_gossip_prune;
+
+	/* rebroadcast our own gossip every hour */
+	struct oneshot *rebroadcast_timer;
 };
 
 struct range_query_reply {

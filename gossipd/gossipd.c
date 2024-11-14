@@ -402,6 +402,36 @@ bool timestamp_reasonable(const struct daemon *daemon, u32 timestamp)
 	return true;
 }
 
+/* Mutual recurrsion */
+static void restart_rebroadcast_timer(struct daemon *daemon);
+
+/* Make sure our peers get our own channel gossip (whether they asked for it
+ * or not!) */
+static void rebroadcast_our_gossip(struct daemon *daemon){
+	status_debug("rebroadcasting our gossip to all peers");
+
+	struct peer *p;
+	struct peer_node_id_map_iter it;
+
+	for (p = peer_node_id_map_first(daemon->peers, &it);
+	     p;
+	     p = peer_node_id_map_next(daemon->peers, &it)) {
+		gossmap_manage_new_peer(daemon->gm, &p->id);
+	}
+
+	restart_rebroadcast_timer(daemon);
+}
+
+static void restart_rebroadcast_timer(struct daemon *daemon)
+{
+	u64 interval = DEV_FAST_GOSSIP(daemon->dev_fast_gossip, 30, 3600);
+	daemon->rebroadcast_timer = new_reltimer(&daemon->timers,
+						 daemon,
+						 time_from_sec(interval),
+						 rebroadcast_our_gossip,
+						 daemon);
+}
+
 /*~ Parse init message from lightningd: starts the daemon properly. */
 static void gossip_init(struct daemon *daemon, const u8 *msg)
 {
@@ -436,6 +466,9 @@ static void gossip_init(struct daemon *daemon, const u8 *msg)
 
 	/* Fire up the seeker! */
 	daemon->seeker = new_seeker(daemon);
+
+	/* Make sure we periodically spam our own gossip */
+	restart_rebroadcast_timer(daemon);
 
 	/* connectd is already started, and uses this fd to feed/recv gossip. */
 	daemon->connectd = daemon_conn_new(daemon, CONNECTD_FD,
