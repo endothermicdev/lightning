@@ -28,6 +28,7 @@ OPTIONS
 * **--testnet**
 * **--testnet4**
 * **--signet**
+* **--mutinynet**
 * **--regtest**
 
   Sets network explicitly.
