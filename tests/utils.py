@@ -22,6 +22,7 @@ def default_ln_port(network: str) -> int:
         "testnet": 19735,
         "regtest": 19846,
         "signet": 39735,
+        "mutinynet": 39735,
         "liquid-regtest": 20735,
         "liquid": 9735,
         "testnet4": 49735,

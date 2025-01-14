@@ -18201,7 +18201,7 @@
                   "value_str": {
                     "type": "string",
                     "description": [
-                      "Field from config or cmdline, or default (can also be changed by `testnet`, `signet`, `regtest` options!)."
+                      "Field from config or cmdline, or default (can also be changed by `testnet`, `signet`, `regtest`, or `mutinynet` options!)."
                     ]
                   },
                   "source": {
@@ -20827,6 +20827,10 @@
                 "source": "default"
               },
               "signet": {
+                "set": false,
+                "source": "default"
+              },
+              "mutinynet": {
                 "set": false,
                 "source": "default"
               },

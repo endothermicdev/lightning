@@ -332,7 +332,8 @@ struct configvar **initial_config_opts(const tal_t *ctx,
 	opt_register_early_arg("--network", opt_set_network, opt_show_network,
 			       NULL,
 			       "Select the network parameters (bitcoin, testnet,"
-			       " signet, regtest, litecoin or litecoin-testnet)");
+			       " testnet4, signet, mutinynet, regtest, litecoin "
+			       "or litecoin-testnet)");
 	opt_register_early_noarg("--testnet",
 				 opt_set_specific_network, "testnet",
 				 "Alias for --network=testnet");
@@ -342,6 +343,9 @@ struct configvar **initial_config_opts(const tal_t *ctx,
 	opt_register_early_noarg("--signet",
 				 opt_set_specific_network, "signet",
 				 "Alias for --network=signet");
+	opt_register_early_noarg("--mutinynet",
+				 opt_set_specific_network, "mutinynet",
+				 "Alias for --network=mutinynet");
 	opt_register_early_noarg("--mainnet",
 				 opt_set_specific_network, "bitcoin",
 				 "Alias for --network=bitcoin");
