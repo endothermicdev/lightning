@@ -76,7 +76,7 @@ Available option flags:
 
 **--network**=*network*
 	specify bitcoin, regtest, liquid, liquid-regtest, litecoin, signet,
-	or testnet networks. (default: bitcoin)
+	mutinynet, or testnet networks. (default: bitcoin)
 
 NOTES
 -----
