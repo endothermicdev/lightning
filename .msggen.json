@@ -2775,6 +2775,7 @@
         },
         "ListpeerchannelsChannelsUpdatesRemote": {
             "ListPeerChannels.channels[].updates.remote.cltv_expiry_delta": 3,
+            "ListPeerChannels.channels[].updates.remote.disable": 6,
             "ListPeerChannels.channels[].updates.remote.fee_base_msat": 4,
             "ListPeerChannels.channels[].updates.remote.fee_proportional_millionths": 5,
             "ListPeerChannels.channels[].updates.remote.htlc_maximum_msat": 2,
@@ -10316,6 +10317,10 @@
         },
         "ListPeerChannels.channels[].updates.remote.cltv_expiry_delta": {
             "added": "v24.02",
+            "deprecated": null
+        },
+        "ListPeerChannels.channels[].updates.remote.disable": {
+            "added": "v25.02",
             "deprecated": null
         },
         "ListPeerChannels.channels[].updates.remote.fee_base_msat": {

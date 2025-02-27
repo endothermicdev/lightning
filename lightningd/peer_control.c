@@ -907,6 +907,8 @@ static void NON_NULL_ARGS(1, 2, 4, 5) json_add_channel(struct command *cmd,
 				     amount_msat(peer_update->fee_base));
 		json_add_u32(response, "fee_proportional_millionths",
 			     peer_update->fee_ppm);
+		bool disabled = (peer_update->channel_flags & 0x02) >> 1;
+		json_add_bool(response, "disable", disabled);
 		json_object_end(response);
 	}
 	json_object_end(response);

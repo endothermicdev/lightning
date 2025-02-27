@@ -24107,7 +24107,8 @@
                         "htlc_maximum_msat",
                         "cltv_expiry_delta",
                         "fee_base_msat",
-                        "fee_proportional_millionths"
+                        "fee_proportional_millionths",
+                        "disable"
                       ],
                       "properties": {
                         "htlc_minimum_msat": {
@@ -24143,6 +24144,13 @@
                           "added": "v24.02",
                           "description": [
                             "Amount they charge to use the channel in parts-per-million."
+                          ]
+                        },
+                        "disable": {
+                          "type": "boolean",
+                          "added": "v25.02",
+                          "description": [
+                            "channel flag to mark channel disabled."
                           ]
                         }
                       }

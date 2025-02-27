@@ -968,6 +968,7 @@ def listpeerchannels_channels_updates_local2py(m):
 def listpeerchannels_channels_updates_remote2py(m):
     return remove_default({
         "cltv_expiry_delta": m.cltv_expiry_delta,  # PrimitiveField in generate_composite
+        "disable": m.disable,  # PrimitiveField in generate_composite
         "fee_base_msat": amount2msat(m.fee_base_msat),  # PrimitiveField in generate_composite
         "fee_proportional_millionths": m.fee_proportional_millionths,  # PrimitiveField in generate_composite
         "htlc_maximum_msat": amount2msat(m.htlc_maximum_msat),  # PrimitiveField in generate_composite
