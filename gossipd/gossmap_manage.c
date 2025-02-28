@@ -859,7 +859,8 @@ static const char *process_channel_update(const tal_t *ctx,
 		tell_lightningd_peer_update(gm->daemon, source_peer,
 					    scid, fee_base_msat,
 					    fee_proportional_millionths,
-					    cltv_expiry_delta, htlc_minimum_msat,
+					    cltv_expiry_delta, channel_flags,
+					    htlc_minimum_msat,
 					    htlc_maximum_msat);
 	}
 
@@ -965,7 +966,8 @@ const char *gossmap_manage_channel_update(const tal_t *ctx,
 		tell_lightningd_peer_update(gm->daemon, source_peer,
 					    scid, fee_base_msat,
 					    fee_proportional_millionths,
-					    cltv_expiry_delta, htlc_minimum_msat,
+					    cltv_expiry_delta, channel_flags,
+					    htlc_minimum_msat,
 					    htlc_maximum_msat);
 		return NULL;
 	}

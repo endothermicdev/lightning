@@ -359,6 +359,7 @@ static void gossmod_add_unknown_localchan(struct gossmap_localmods *mods,
 					  struct amount_msat fee_base,
 					  u32 fee_proportional,
 					  u16 cltv_delta,
+					  bool remote_disabled,
 					  bool enabled,
 					  const char *buf UNUSED,
 					  const jsmntok_t *chantok UNUSED,
@@ -369,7 +370,8 @@ static void gossmod_add_unknown_localchan(struct gossmap_localmods *mods,
 
 	gossmod_add_localchan(mods, self, peer, scidd, capacity_msat,
 			      min, max, spendable, max_total_htlc,
-			      fee_base, fee_proportional, cltv_delta, enabled,
+			      fee_base, fee_proportional, cltv_delta,
+			      remote_disabled, enabled,
 			      buf, chantok, gossmap);
 }
 
@@ -667,6 +669,9 @@ listpeerchannels_listincoming_done(struct command *cmd,
 		json_add_amount_msat(js, "incoming_capacity_msat",
 				     peer_capacity(gossmap, me, peer, ourchan));
 		json_add_bool(js, "public", !gossmap_chan_is_localmod(gossmap, ourchan));
+		/* peer_connected, channel in functional state, and channel not
+		 * disabled in remote channel update */
+		json_add_bool(js, "enabled", ourchan->half[!dir].enabled);
 		peer_features = gossmap_node_get_features(tmpctx, gossmap, peer);
 		if (peer_features)
 			json_add_hex_talarr(js, "peer_features", peer_features);

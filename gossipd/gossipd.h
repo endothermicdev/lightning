@@ -160,6 +160,7 @@ void tell_lightningd_peer_update(struct daemon *daemon,
 				 u32 fee_base_msat,
 				 u32 fee_ppm,
 				 u16 cltv_delta,
+				 u8 channel_flags,
 				 struct amount_msat htlc_minimum,
 				 struct amount_msat htlc_maximum);
 

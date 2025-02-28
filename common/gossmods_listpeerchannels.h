@@ -38,6 +38,7 @@ struct gossmap_localmods *gossmods_from_listpeerchannels_(const tal_t *ctx,
 								     struct amount_msat fee_base,
 								     u32 fee_proportional,
 								     u16 cltv_delta,
+								     bool remote_disabled,
 								     bool enabled,
 								     const char *buf_,
 								     const jsmntok_t *chantok,
@@ -60,6 +61,7 @@ struct gossmap_localmods *gossmods_from_listpeerchannels_(const tal_t *ctx,
 							    u32,	\
 							    u16,	\
 							    bool,	\
+							    bool,	\
 							    const char *, \
 							    const jsmntok_t *), \
 					(cbarg))
@@ -77,6 +79,7 @@ void gossmod_add_localchan(struct gossmap_localmods *mods,
 			   struct amount_msat fee_base,
 			   u32 fee_proportional,
 			   u16 cltv_delta,
+			   bool remote_disabled,
 			   bool enabled,
 			   const char *buf UNUSED,
 			   const jsmntok_t *chantok UNUSED,

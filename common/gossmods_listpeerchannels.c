@@ -17,6 +17,7 @@ void gossmod_add_localchan(struct gossmap_localmods *mods,
 			   struct amount_msat fee_base,
 			   u32 fee_proportional,
 			   u16 cltv_delta,
+			   bool remote_disabled,
 			   bool enabled,
 			   const char *buf UNUSED,
 			   const jsmntok_t *chantok UNUSED,
@@ -27,12 +28,15 @@ void gossmod_add_localchan(struct gossmap_localmods *mods,
 	if (amount_msat_less(spendable, max))
 		max = spendable;
 
+	/* peer connected, channel state okay, no channel_update disable flag */
+	bool really_enabled = enabled && !remote_disabled;
+
 	/* FIXME: features? */
 	gossmap_local_addchan(mods, self, peer, scidd->scid, capacity_msat,
 			      NULL);
 
 	gossmap_local_updatechan(mods, scidd,
-				 &enabled,
+				 &really_enabled,
 				 &min, &max,
 				 &fee_base,
 				 &fee_proportional,
@@ -57,6 +61,7 @@ gossmods_from_listpeerchannels_(const tal_t *ctx,
 					   struct amount_msat fee_base,
 					   u32 fee_proportional,
 					   u16 cltv_delta,
+					   bool remote_disabled,
 					   bool enabled,
 					   const char *buf,
 					   const jsmntok_t *chantok,
@@ -71,11 +76,14 @@ gossmods_from_listpeerchannels_(const tal_t *ctx,
 	json_for_each_arr(i, channel, channels) {
 		struct short_channel_id_dir scidd;
 		struct short_channel_id alias;
+		/* peer_connected */
 		bool enabled;
 		struct node_id dst;
 		struct amount_msat capacity_msat, spendable, receivable, fee_base[NUM_SIDES], htlc_min[NUM_SIDES], htlc_max[NUM_SIDES];
 		struct amount_msat max_total_in_htlc, max_total_out_htlc;
 		u32 fee_proportional[NUM_SIDES], cltv_delta[NUM_SIDES];
+		/* remote channel update disabled flag */
+		bool disabled;
 		const char *state, *err;
 
 		/* scid/direction and alias may not exist. */
@@ -104,11 +112,12 @@ gossmods_from_listpeerchannels_(const tal_t *ctx,
 				 "htlc_maximum_msat:%,"
 				 "cltv_expiry_delta:%},"
 				 "remote?"
-				 ":{fee_base_msat:%,"
-				 "fee_proportional_millionths:%,"
-				 "htlc_minimum_msat:%,"
+				 ":{htlc_minimum_msat:%,"
 				 "htlc_maximum_msat:%,"
-				 "cltv_expiry_delta:%}},"
+				 "cltv_expiry_delta:%,"
+				 "fee_base_msat:%,"
+				 "fee_proportional_millionths:%,"
+				 "disable:%}},"
 				"alias?:{local:%}}",
 				JSON_SCAN(json_to_short_channel_id, &scidd.scid),
 				JSON_SCAN(json_to_int, &scidd.dir),
@@ -125,11 +134,12 @@ gossmods_from_listpeerchannels_(const tal_t *ctx,
 				JSON_SCAN(json_to_msat, &htlc_min[LOCAL]),
 				JSON_SCAN(json_to_msat, &htlc_max[LOCAL]),
 				JSON_SCAN(json_to_u32, &cltv_delta[LOCAL]),
-				JSON_SCAN(json_to_msat, &fee_base[REMOTE]),
-				JSON_SCAN(json_to_u32, &fee_proportional[REMOTE]),
 				JSON_SCAN(json_to_msat, &htlc_min[REMOTE]),
 				JSON_SCAN(json_to_msat, &htlc_max[REMOTE]),
 				JSON_SCAN(json_to_u32, &cltv_delta[REMOTE]),
+				JSON_SCAN(json_to_msat, &fee_base[REMOTE]),
+				JSON_SCAN(json_to_u32, &fee_proportional[REMOTE]),
+				JSON_SCAN(json_to_bool, &disabled),
 				JSON_SCAN(json_to_short_channel_id, &alias));
 		if (err) {
 			errx(1, "Bad listpeerchannels.channels %zu: %s",
@@ -145,6 +155,7 @@ gossmods_from_listpeerchannels_(const tal_t *ctx,
 			continue;
 
 		/* Disable if in bad state (it's already false if not connected) */
+		/* FIXME: can be true while not connected */
 		if (!streq(state, "CHANNELD_NORMAL")
 		      && !streq(state, "CHANNELD_AWAITING_SPLICE"))
 			enabled = false;
@@ -163,7 +174,7 @@ gossmods_from_listpeerchannels_(const tal_t *ctx,
 		cb(mods, self, &dst, &scidd, capacity_msat,
 		   htlc_min[LOCAL], htlc_max[LOCAL],
 		   spendable, max_total_out_htlc, fee_base[LOCAL], fee_proportional[LOCAL],
-		   cltv_delta[LOCAL], enabled, buf, channel, cbarg);
+		   cltv_delta[LOCAL], false, enabled, buf, channel, cbarg);
 
 		/* If we didn't have a remote update, it's not usable yet */
 		if (fee_proportional[REMOTE] == -1U)
@@ -174,7 +185,7 @@ gossmods_from_listpeerchannels_(const tal_t *ctx,
 		cb(mods, self, &dst, &scidd, capacity_msat,
 		   htlc_min[REMOTE], htlc_max[REMOTE],
 		   receivable, max_total_in_htlc, fee_base[REMOTE], fee_proportional[REMOTE],
-		   cltv_delta[REMOTE], enabled, buf, channel, cbarg);
+		   cltv_delta[REMOTE], disabled, enabled, buf, channel, cbarg);
 	}
 
 	return mods;

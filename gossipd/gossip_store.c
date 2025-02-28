@@ -149,6 +149,7 @@ static void give_lightningd_canned_private_update(struct daemon *daemon,
 				    fee_base_msat,
 				    fee_proportional_millionths,
 				    cltv_expiry_delta,
+				    channel_flags,
 				    htlc_minimum_msat,
 				    htlc_maximum_msat);
 }

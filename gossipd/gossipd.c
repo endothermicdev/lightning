@@ -324,6 +324,7 @@ void tell_lightningd_peer_update(struct daemon *daemon,
 				 u32 fee_base_msat,
 				 u32 fee_ppm,
 				 u16 cltv_delta,
+				 u8 channel_flags,
 				 struct amount_msat htlc_minimum,
 				 struct amount_msat htlc_maximum)
 {
@@ -333,6 +334,7 @@ void tell_lightningd_peer_update(struct daemon *daemon,
 	remote_update.fee_base = fee_base_msat;
 	remote_update.fee_ppm = fee_ppm;
 	remote_update.cltv_delta = cltv_delta;
+	remote_update.channel_flags = channel_flags;
 	remote_update.htlc_minimum_msat = htlc_minimum;
 	remote_update.htlc_maximum_msat = htlc_maximum;
 	msg = towire_gossipd_remote_channel_update(NULL, source_peer, &remote_update);
