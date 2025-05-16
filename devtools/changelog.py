@@ -40,6 +40,19 @@ def get_commit_range():
     return "{version}..HEAD".format(version=version)
 
 
+def next_major_release():
+    """The next release tag we should use."""
+    description = git("describe")
+    version = description.split('-', maxsplit=1)[0].split('v', maxsplit=1)[1]
+    year, month = version.split('.')[:2]
+    month = int(month) + 3
+    if month > 12:
+        month -= 12
+        year = int(year) + 1
+
+    return f"{year}.{month}"
+
+
 def get_log_entries(commitrange):
     commit = None
     logs = git("log {commitrange}".format(commitrange=commitrange))
@@ -153,6 +166,10 @@ if __name__ == "__main__":
                         help='Range of commits to consider (format: <from_commit>..<to_commit>',
                         default=get_commit_range())
 
+    parser.add_argument('tag', type=str, nargs='?',
+                        help='new tag for this changelog',
+                        default=next_major_release())
+
     args = parser.parse_args()
 
     if '..' not in args.commitrange:
@@ -168,7 +185,7 @@ if __name__ == "__main__":
         groups=groups,
         h2='##',
         h3='###',
-        version=tocommit[1:],
+        version=args.tag,
         date=date,
         links=linkify(entries),
     ))
