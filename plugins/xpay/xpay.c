@@ -132,6 +132,9 @@ struct payment {
 	bool pay_compat;
 	/* When did we start? */
 	struct timeabs start_time;
+
+	/* Forget results after payment? I.e., don't use xpay layer. */
+	bool amnesia;
 };
 
 /* One step in a path. */
@@ -181,6 +184,7 @@ static struct command_result *xpay_core(struct command *cmd,
 					u32 retryfor,
 					const struct amount_msat *partial,
 					u32 maxdelay,
+					bool amnesia,
 					bool as_pay);
 
 /* Wrapper for pending commands (ignores return) */
@@ -1461,7 +1465,10 @@ static struct command_result *getroutes_for(struct command *aux_cmd,
 	/* We don't pay fees for ourselves */
 	json_add_string(req->js, NULL, "auto.sourcefree");
 	/* Add xpay global channel */
-	json_add_string(req->js, NULL, "xpay");
+	if (payment->amnesia)
+		json_add_string(req->js, NULL, "xpay-amnesia");
+	else
+		json_add_string(req->js, NULL, "xpay");
 	/* Add private layer */
 	json_add_string(req->js, NULL, payment->private_layer);
 	/* Add user-specified layers */
@@ -1790,6 +1797,8 @@ struct xpay_params {
 	unsigned int retryfor;
 	u32 maxdelay;
 	const char *bip353;
+	bool amnesia;
+	bool aspay;
 };
 
 static struct command_result *
@@ -1805,7 +1814,7 @@ invoice_fetched(struct command *cmd,
 	return xpay_core(cmd, take(to_canonical_invstr(NULL, take(inv))),
 			 NULL, params->maxfee, params->layers,
 			 params->retryfor, params->partial, params->maxdelay,
-			 false);
+			 params->amnesia, false);
 }
 
 static struct command_result *
@@ -1858,6 +1867,24 @@ bip353_fetched(struct command *cmd,
 	return do_fetchinvoice(cmd, offerstr, xparams);
 }
 
+static struct command_result *age_amnesia_done(struct command *cmd,
+		      const char *method,
+		      const char *buf,
+		      const jsmntok_t *result,
+		      struct xpay_params *xparams)
+{
+	return xpay_core(cmd,
+			 xparams->bip353,
+			 xparams->msat,
+			 xparams->maxfee,
+			 xparams->layers,
+			 xparams->retryfor,
+			 xparams->partial,
+			 xparams->maxdelay,
+			 xparams->amnesia,
+			 xparams->aspay);
+}
+
 static struct command_result *json_xpay_params(struct command *cmd,
 					       const char *buffer,
 					       const jsmntok_t *params,
@@ -1870,6 +1897,7 @@ static struct command_result *json_xpay_params(struct command *cmd,
 	unsigned int *retryfor;
 	struct out_req *req;
 	struct xpay_params *xparams;
+	bool *amnesia;
 
 	if (!param_check(cmd, buffer, params,
 			 p_req("invstring", param_invstring, &invstring),
@@ -1879,6 +1907,7 @@ static struct command_result *json_xpay_params(struct command *cmd,
 			 p_opt_def("retry_for", param_number, &retryfor, 60),
 			 p_opt("partial_msat", param_msat, &partial),
 			 p_opt_def("maxdelay", param_u32, &maxdelay, 2016),
+			 p_opt_dev("dev_amnesia", param_bool, &amnesia, false),
 			 NULL))
 		return command_param_failed();
 
@@ -1901,6 +1930,7 @@ static struct command_result *json_xpay_params(struct command *cmd,
 		xparams->retryfor = *retryfor;
 		xparams->maxdelay = *maxdelay;
 		xparams->bip353 = NULL;
+		xparams->amnesia = *amnesia;
 
 		return do_fetchinvoice(cmd, invstring, xparams);
 	}
@@ -1915,6 +1945,7 @@ static struct command_result *json_xpay_params(struct command *cmd,
 		xparams->retryfor = *retryfor;
 		xparams->maxdelay = *maxdelay;
 		xparams->bip353 = invstring;
+		xparams->amnesia = *amnesia;
 
 		req = jsonrpc_request_start(cmd, "fetchbip353",
 					    bip353_fetched,
@@ -1923,9 +1954,30 @@ static struct command_result *json_xpay_params(struct command *cmd,
 		return send_outreq(req);
 	}
 
+	if (*amnesia) {
+		xparams = tal(cmd, struct xpay_params);
+		xparams->msat = msat;
+		xparams->maxfee = maxfee;
+		xparams->partial = partial;
+		xparams->layers = layers;
+		xparams->retryfor = *retryfor;
+		xparams->maxdelay = *maxdelay;
+		xparams->bip353 = invstring;
+		xparams->amnesia = *amnesia;
+		xparams->aspay = as_pay;
+		/* Clear amnesia layer which replaces xpay layer in askrene. */
+		req = jsonrpc_request_start(cmd, "askrene-age",
+					    age_amnesia_done,
+					    plugin_broken_cb,
+					    xparams);
+		json_add_string(req->js, "layer", "xpay-amnesia");
+		json_add_u64(req->js, "cutoff", time_now().ts.tv_sec);
+		return send_outreq(req);
+	}
+
 	return xpay_core(cmd, invstring,
 			 msat, maxfee, layers, *retryfor, partial, *maxdelay,
-			 as_pay);
+			 *amnesia, as_pay);
 }
 
 static struct command_result *xpay_core(struct command *cmd,
@@ -1936,6 +1988,7 @@ static struct command_result *xpay_core(struct command *cmd,
 					u32 retryfor,
 					const struct amount_msat *partial,
 					u32 maxdelay,
+					bool amnesia,
 					bool as_pay)
 {
 	struct payment *payment = tal(cmd, struct payment);
@@ -1965,6 +2018,10 @@ static struct command_result *xpay_core(struct command *cmd,
 	else
 		payment->layers = NULL;
 	payment->maxdelay = maxdelay;
+	payment->amnesia = amnesia;
+
+	if (amnesia)
+		plugin_log(cmd->plugin, LOG_INFORM, "amnesia mode active");
 
 	if (bolt12_has_prefix(payment->invstring)) {
 		struct tlv_invoice *b12inv
@@ -1984,7 +2041,7 @@ static struct command_result *xpay_core(struct command *cmd,
 		/* FIXME: This is actually spec legal, since invoice_amount is
 		 * the *minumum* it will accept.  We could change this to
 		 * 1msat if required. */
- 		if (amount_msat_is_zero(payment->full_amount))
+		if (amount_msat_is_zero(payment->full_amount))
 			return command_fail(cmd, JSONRPC2_INVALID_PARAMS,
 					    "Invalid bolt12 invoice with zero amount");
 
@@ -2249,6 +2306,14 @@ static const char *init(struct command *init_cmd,
 				    plugin_broken_cb,
 				    "askrene-create-layer");
 	json_add_string(req->js, "layer", "xpay");
+	json_add_bool(req->js, "persistent", true);
+	send_outreq(req);
+
+	req = jsonrpc_request_start(aux_command(init_cmd), "askrene-create-layer",
+				    xpay_layer_created,
+				    plugin_broken_cb,
+				    "askrene-create-layer");
+	json_add_string(req->js, "layer", "xpay-amnesia");
 	json_add_bool(req->js, "persistent", true);
 	send_outreq(req);
 
