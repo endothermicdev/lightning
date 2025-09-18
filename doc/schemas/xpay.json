@@ -65,6 +65,14 @@
           "A payment may be delayed for up to `maxdelay` blocks by another node; clients should be prepared for this worst case."
         ],
         "default": "2016"
+      },
+      "amnesia": {
+        "type": "boolean",
+        "added": "v25.12",
+        "description": [
+          "Forget hints from this payment's attempts after this payment completes (hints are applied to askrene to reduce payment failures)."
+        ],
+        "default": "False"
       }
     }
   },

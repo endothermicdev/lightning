@@ -4067,6 +4067,7 @@
             "Withdraw.txid": 2
         },
         "XpayRequest": {
+            "Xpay.amnesia": 8,
             "Xpay.amount_msat": 2,
             "Xpay.invstring": 1,
             "Xpay.layers[]": 4,
@@ -14010,6 +14011,10 @@
         },
         "Xpay": {
             "added": "v24.11",
+            "deprecated": null
+        },
+        "Xpay.amnesia": {
+            "added": "v25.12",
             "deprecated": null
         },
         "Xpay.amount_msat": {
