@@ -1466,7 +1466,7 @@ static struct command_result *getroutes_for(struct command *aux_cmd,
 	json_add_string(req->js, NULL, "auto.sourcefree");
 	/* Add xpay global channel */
 	if (payment->amnesia)
-		json_add_string(req->js, NULL, "xpay-amnesia");
+		json_add_string(req->js, NULL, "amnesia");
 	else
 		json_add_string(req->js, NULL, "xpay");
 	/* Add private layer */
@@ -1970,7 +1970,7 @@ static struct command_result *json_xpay_params(struct command *cmd,
 					    age_amnesia_done,
 					    plugin_broken_cb,
 					    xparams);
-		json_add_string(req->js, "layer", "xpay-amnesia");
+		json_add_string(req->js, "layer", "amnesia");
 		json_add_u64(req->js, "cutoff", time_now().ts.tv_sec);
 		return send_outreq(req);
 	}
@@ -2259,6 +2259,17 @@ static void start_aging_timer(struct plugin *plugin)
 	notleak(global_timer(plugin, time_from_sec(60), age_layer, NULL));
 }
 
+
+static struct command_result *xpay_amnesia_layer_created(struct command *aux_cmd,
+							 const char *method,
+							 const char *buf,
+							 const jsmntok_t *result,
+							 void *unused)
+{
+	plugin_log(aux_cmd->plugin, LOG_DBG, "amnesia layer created");
+	return aux_command_done(aux_cmd);
+}
+
 static struct command_result *xpay_layer_created(struct command *aux_cmd,
 						 const char *method,
 						 const char *buf,
@@ -2266,7 +2277,14 @@ static struct command_result *xpay_layer_created(struct command *aux_cmd,
 						 void *unused)
 {
 	start_aging_timer(aux_cmd->plugin);
-	return aux_command_done(aux_cmd);
+	struct out_req *req;
+	req = jsonrpc_request_start(aux_cmd, "askrene-create-layer",
+				    xpay_amnesia_layer_created,
+				    plugin_broken_cb,
+				    "askrene-create-layer");
+	json_add_string(req->js, "layer", "amnesia");
+	json_add_bool(req->js, "persistent", true);
+	return send_outreq(req);
 }
 
 static const char *init(struct command *init_cmd,
@@ -2306,14 +2324,6 @@ static const char *init(struct command *init_cmd,
 				    plugin_broken_cb,
 				    "askrene-create-layer");
 	json_add_string(req->js, "layer", "xpay");
-	json_add_bool(req->js, "persistent", true);
-	send_outreq(req);
-
-	req = jsonrpc_request_start(aux_command(init_cmd), "askrene-create-layer",
-				    xpay_layer_created,
-				    plugin_broken_cb,
-				    "askrene-create-layer");
-	json_add_string(req->js, "layer", "xpay-amnesia");
 	json_add_bool(req->js, "persistent", true);
 	send_outreq(req);
 
