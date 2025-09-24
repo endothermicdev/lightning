@@ -1873,6 +1873,11 @@ static struct command_result *age_amnesia_done(struct command *cmd,
 		      const jsmntok_t *result,
 		      struct xpay_params *xparams)
 {
+	plugin_log(cmd->plugin, LOG_DBG, "amnesia layer aged");
+
+
+	plugin_log(cmd->plugin, LOG_DBG, "Initiating xpay %s to invoice %s",
+		   xparams->amnesia ? "(amnesia)" : "", xparams->bip353);
 	return xpay_core(cmd,
 			 xparams->bip353,
 			 xparams->msat,
@@ -1911,6 +1916,8 @@ static struct command_result *json_xpay_params(struct command *cmd,
 			 NULL))
 		return command_param_failed();
 
+	plugin_log(cmd->plugin, LOG_DBG, "attempting xpay payment of %s",
+		   invstring);
 	/* Is this a one-shot vibe payment?  Kids these days! */
 	if (!as_pay && bolt12_has_offer_prefix(invstring)) {
 		struct command_result *ret;
@@ -1965,6 +1972,11 @@ static struct command_result *json_xpay_params(struct command *cmd,
 		xparams->bip353 = invstring;
 		xparams->amnesia = *amnesia;
 		xparams->aspay = as_pay;
+
+
+		plugin_log(cmd->plugin, LOG_INFORM, "sending age layer request"
+			   " for amnesia");
+
 		/* Clear amnesia layer which replaces xpay layer in askrene. */
 		req = jsonrpc_request_start(cmd, "askrene-age",
 					    age_amnesia_done,
