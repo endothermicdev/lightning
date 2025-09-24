@@ -15,6 +15,7 @@ dependencies = [
   "pyln-client",
   "pyln-proto",
   "pyln-grpc-proto",
+  "pyln-testing",
 ]
 package-mode = false
 [dependency-groups]
@@ -61,8 +62,8 @@ pyln-client = { workspace = true }
 pyln-proto = { workspace = true }
 pyln-grpc-proto = { workspace = true }
 wss-proxy = { workspace = true }
-pyln-testing = { workspace = true }
 pyln-bolt1 = { workspace = true }
 pyln-bolt2 = { workspace = true }
 pyln-bolt4 = { workspace = true }
 pyln-bolt7 = { workspace = true }
+pyln-testing = { workspace = true }

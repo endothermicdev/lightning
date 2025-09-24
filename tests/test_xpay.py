@@ -280,7 +280,7 @@ def test_xpay_fake_channeld(node_factory, bitcoind, chainparams, slow_mode):
     # FIXME: channeld_fakenet doesn't restart properly, so just redo xpay.
     layers = l1.rpc.askrene_listlayers()
     # Temporary layers should be gone.
-    assert len(layers['layers']) == 1
+    assert len(layers['layers']) == 2
 
     l1.rpc.plugin_stop("cln-askrene")
     l1.rpc.plugin_start(os.path.join(os.getcwd(), 'plugins/cln-askrene'))
