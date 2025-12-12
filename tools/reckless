@@ -1118,8 +1118,10 @@ rust_cargo = Installer('rust', manager='cargo', entry='Cargo.toml')
 rust_cargo.add_dependency_file('Cargo.toml')
 rust_cargo.dependency_call = cargo_installation
 
-INSTALLERS = [pythonuv, pythonuvlegacy, python3venv, poetryvenv,
-              pyprojectViaPip, nodejs, rust_cargo]
+# Projects may include python dependencies for testing, so give other installers
+# first priority.
+INSTALLERS = [rust_cargo, nodejs, pythonuv, pythonuvlegacy, python3venv,
+              poetryvenv, pyprojectViaPip]
 
 
 def help_alias(targets: list):
