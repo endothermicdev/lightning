@@ -9,6 +9,7 @@ import re
 import shutil
 import time
 import unittest
+from pyln.client import lightning
 
 
 @pytest.fixture(autouse=True)
@@ -366,3 +367,21 @@ def test_reckless_uv_install(node_factory):
 
     assert r.search_stdout('using installer pythonuv')
     r.check_stderr()
+
+
+def test_reckless_usage(node_factory):
+    """The reckless rpc response is more useful if it can pass back incorrect
+    usage errors."""
+    node = node_factory.get_node(options={}, may_fail=True, start=False)
+    node.start(stderr_redir=True)
+    r = reckless(['searhc', 'testplugpass'],
+                 dir=node.lightning_dir)
+    # The reckless utility should fail and argparse should provide a usage hint
+    # as the line of output.
+    assert r.returncode == 2
+    assert "reckless: error: argument cmd1: invalid choice: 'searhc' (choose from " in r.stderr[-1]
+
+    # The rpc plugin should capture and raise this usage error
+    with pytest.raises(lightning.RpcError,
+                       match="reckless: error: argument cmd1: invalid choice: 'saerch'"):
+        node.rpc.reckless('saerch', 'testplugpass')
